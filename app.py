@@ -1,27 +1,60 @@
 from flask import Flask, request
+import requests
 
 app = Flask(__name__)
 
-# ✅ ROOT ROUTE
+# ===== HOME =====
 @app.route('/')
 def home():
     return "Server Running 🚀"
 
-# ✅ UPLOAD ROUTE
+# ===== OCR FUNCTION =====
+def extract_text(image):
+    url = "https://api.ocr.space/parse/image"
+    payload = {
+        'apikey': 'helloworld',
+        'language': 'eng'
+    }
+
+    files = {
+        'file': ('image.jpg', image)
+    }
+
+    r = requests.post(url, files=files, data=payload)
+    result = r.json()
+
+    try:
+        return result['ParsedResults'][0]['ParsedText']
+    except:
+        return ""
+
+# ===== UPLOAD =====
 @app.route('/upload', methods=['POST'])
 def upload():
-    try:
-        image = request.data
 
-        if not image:
-            return {"error": "No image received"}, 400
+    image = request.data
 
-        print("✅ Image received")
+    if not image:
+        return {"error": "No image"}, 400
 
-        return {"text": "GST FOUND"}, 200
+    print("📸 Image received")
 
-    except Exception as e:
-        return {"error": str(e)}, 500
+    # 🔥 OCR
+    text = extract_text(image)
+    print("🧠 OCR TEXT:", text)
+
+    # 🔥 GST LOGIC
+    if "GST" not in text:
+        alert = "❌ GST Missing"
+    elif "Duplicate" in text:
+        alert = "⚠️ Duplicate Invoice"
+    else:
+        alert = "✅ Valid Invoice"
+
+    return {
+        "text": text,
+        "alert": alert
+    }, 200
 
 
 if __name__ == "__main__":
