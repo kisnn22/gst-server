@@ -2,22 +2,23 @@ from flask import Flask, request
 
 app = Flask(__name__)
 
+# ✅ ROOT ROUTE
 @app.route('/')
 def home():
-    return "Server Running"
+    return "Server Running 🚀"
 
+# ✅ UPLOAD ROUTE
 @app.route('/upload', methods=['POST'])
 def upload():
     try:
         image = request.data
-        
+
         if not image:
             return {"error": "No image received"}, 400
 
         print("✅ Image received")
 
-        # 🔥 Dummy OCR response
-        return {"text": "GST123 FOUND"}, 200
+        return {"text": "GST FOUND"}, 200
 
     except Exception as e:
         return {"error": str(e)}, 500
