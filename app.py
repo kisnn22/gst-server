@@ -4,6 +4,13 @@ import firebase_admin
 from firebase_admin import credentials, db
 import re
 import time
+import firebase_admin
+from firebase_admin import credentials, db
+
+cred = credentials.Certificate("firebase-key.json")
+firebase_admin.initialize_app(cred, {
+    'databaseURL': 'https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com/'
+})
 
 app = Flask(__name__)
 
@@ -50,6 +57,16 @@ def find_gst(text):
     return match.group() if match else None
 
 # ===== UPLOAD =====
+from datetime import datetime
+
+ref = db.reference("GST_System")
+
+ref.set({
+    "alert": alert,
+    "gst_number": gst if gst else "Not Found",
+    "status": "Invoice Detected",
+    "timestamp": str(datetime.now())
+})
 @app.route('/upload', methods=['POST'])
 def upload():
 
