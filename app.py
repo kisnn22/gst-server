@@ -16,6 +16,10 @@ def get_client():
         client = vision.ImageAnnotatorClient()
     return client
 
+@app.route('/test')
+def test():
+    return "Upload route working"
+    
 # ===== FIREBASE INIT =====
 cred = credentials.Certificate("firebase-key.json")  # 🔥 file naam same hona chahiye
 firebase_admin.initialize_app(cred, {
