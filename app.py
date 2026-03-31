@@ -3,8 +3,13 @@ from google.cloud import vision
 
 app = Flask(__name__)
 
-# Google Vision client
-client = vision.ImageAnnotatorClient()
+client = None
+
+def get_client():
+    global client
+    if client is None:
+        client = vision.ImageAnnotatorClient()
+    return client
 
 @app.route('/')
 def home():
