@@ -1,72 +1,116 @@
 from flask import Flask, request, jsonify
 from google.cloud import vision
+from google.oauth2 import service_account
 import firebase_admin
 from firebase_admin import credentials, db
 import re
+import time
+import os
 
 app = Flask(__name__)
 
-# ===== FIREBASE INIT =====
-cred = credentials.Certificate("firebase-key.json")  # 🔥 tera firebase key file
-firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com/'
-})
+# ================= GOOGLE VISION CLIENT =================
+def get_vision_client():
+    try:
+        credentials = service_account.Credentials.from_service_account_file("key.json")
+        return vision.ImageAnnotatorClient(credentials=credentials)
+    except Exception as e:
+        print("❌ Vision Init Error:", e)
+        return None
 
-# ===== GOOGLE VISION =====
-client = vision.ImageAnnotatorClient()
+vision_client = get_vision_client()
+
+# ================= FIREBASE INIT =================
+try:
+    cred = credentials.Certificate("key.json")
+    firebase_admin.initialize_app(cred, {
+        'databaseURL': 'https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com/'
+    })
+    print("🔥 Firebase Connected")
+except Exception as e:
+    print("❌ Firebase Init Error:", e)
 
 @app.route('/')
 def home():
-    return "🚀 Server Running with Firebase"
+    return "🚀 GST OCR Server Running"
 
-# ===== OCR =====
+# ================= OCR FUNCTION =================
 def extract_text(image_bytes):
-    image = vision.Image(content=image_bytes)
-    response = client.text_detection(image=image)
+    try:
+        if not vision_client:
+            return ""
 
-    texts = response.text_annotations
+        image = vision.Image(content=image_bytes)
+        response = vision_client.text_detection(image=image)
 
-    if texts:
-        return texts[0].description
-    return ""
+        texts = response.text_annotations
 
-# ===== GST FIND =====
+        if texts:
+            return texts[0].description
+        return ""
+    except Exception as e:
+        print("❌ OCR Error:", e)
+        return ""
+
+# ================= GST DETECTION =================
 def find_gst(text):
     pattern = r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]"
     match = re.search(pattern, text)
     return match.group() if match else None
 
-# ===== UPLOAD =====
+# ================= UPLOAD API =================
 @app.route('/upload', methods=['POST'])
 def upload():
+    try:
+        image = request.get_data()
 
-    image = request.data
+        if not image or len(image) < 100:
+            return {"error": "Invalid image"}, 400
 
-    if not image:
-        return {"error": "No image"}, 400
+        print("📸 Image received:", len(image))
 
-    print("📸 Image received")
+        text = extract_text(image)
+        print("🧠 OCR TEXT:", text)
 
-    text = extract_text(image)
-    gst = find_gst(text)
+        gst = find_gst(text)
 
-    if not gst:
-        alert = "❌ GST Missing"
-        gst_value = "Not Found"
-    else:
-        alert = "✅ GST Found"
-        gst_value = gst
+        if not gst:
+            alert = "❌ GST Missing"
+            gst_value = "Not Found"
+        else:
+            alert = f"✅ GST Found: {gst}"
+            gst_value = gst
 
-    print("📊 RESULT:", alert, gst_value)
+        print("📊 RESULT:", alert)
 
-    # 🔥🔥🔥 FIREBASE PUSH
-    db.reference("GST_System").set({
-        "alert": alert,
-        "gst_number": gst_value,
-        "raw_text": text
-    })
+        # ===== FIREBASE SAVE =====
+        try:
+            ref = db.reference("GST_System")
 
-    return jsonify({
-        "alert": alert,
-        "gst": gst_value
-    })
+            data = {
+                "alert": alert,
+                "gst_number": gst_value,
+                "text": text,
+                "timestamp": int(time.time())
+            }
+
+            ref.set(data)
+
+            print("🔥 Firebase Updated")
+
+        except Exception as e:
+            print("❌ Firebase Error:", e)
+
+        return jsonify({
+            "alert": alert,
+            "gst": gst_value
+        })
+
+    except Exception as e:
+        print("🔥 SERVER ERROR:", e)
+        return {"error": str(e)}, 500
+
+
+# ================= RUN =================
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
