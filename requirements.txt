@@ -2,3 +2,4 @@ Flask
 gunicorn
 requests
 google_cloud_vision
+firebase-admin
