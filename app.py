@@ -1,76 +1,57 @@
 from flask import Flask, request, jsonify
-import requests
+from google.cloud import vision
 
 app = Flask(__name__)
 
-# ===== HOME ROUTE =====
+# Google Vision client
+client = vision.ImageAnnotatorClient()
+
 @app.route('/')
 def home():
-    return "🚀 GST Server Running Successfully"
+    return "🚀 OCR Server Running"
 
-# ===== OCR FUNCTION =====
+# OCR FUNCTION
 def extract_text(image_bytes):
-    url = "https://api.ocr.space/parse/image"
+    image = vision.Image(content=image_bytes)
+    response = client.text_detection(image=image)
 
-    payload = {
-        'apikey': 'helloworld',   # free key
-        'language': 'eng'
-    }
+    texts = response.text_annotations
 
-    files = {
-        'file': ('invoice.jpg', image_bytes, 'image/jpeg')
-    }
+    if texts:
+        return texts[0].description
+    return ""
 
-    try:
-        r = requests.post(url, files=files, data=payload, timeout=10)
-        result = r.json()
+# GST DETECT FUNCTION (ADVANCED 🔥)
+import re
+def find_gst(text):
+    pattern = r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]"
+    match = re.search(pattern, text)
+    return match.group() if match else None
 
-        if "ParsedResults" in result:
-            return result['ParsedResults'][0]['ParsedText']
-        else:
-            return ""
-
-    except Exception as e:
-        print("❌ OCR ERROR:", e)
-        return ""
-
-# ===== UPLOAD ROUTE =====
+# UPLOAD
 @app.route('/upload', methods=['POST'])
 def upload():
+    image = request.data
 
-    try:
-        image = request.data
+    if not image:
+        return {"error": "No image"}, 400
 
-        if not image:
-            return jsonify({"error": "No image received"}), 400
+    print("📸 Image received")
 
-        print("\n📸 Image received:", len(image), "bytes")
+    text = extract_text(image)
+    print("🧠 OCR TEXT:", text)
 
-        # ===== OCR PROCESS =====
-        text = extract_text(image)
-        print("🧠 OCR TEXT:\n", text)
+    gst = find_gst(text)
 
-        # ===== GST LOGIC =====
-        if "GST" not in text:
-            alert = "❌ GST Missing"
-        elif "Duplicate" in text:
-            alert = "⚠️ Duplicate Invoice"
-        else:
-            alert = "✅ Valid Invoice"
+    if not gst:
+        alert = "❌ GST Missing"
+    else:
+        alert = f"✅ GST Found: {gst}"
 
-        print("🔍 FINAL ALERT:", alert)
+    return jsonify({
+        "text": text,
+        "alert": alert
+    })
 
-        # ===== RESPONSE =====
-        return jsonify({
-            "status": "success",
-            "text": text,
-            "alert": alert
-        }), 200
-
-    except Exception as e:
-        print("❌ SERVER ERROR:", e)
-        return jsonify({"error": "Server Failed"}), 500
-
-# ===== RUN SERVER =====
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
