@@ -7,7 +7,7 @@ import re
 app = Flask(__name__)
 
 # ===== FIREBASE INIT =====
-cred = credentials.Certificate("key.json")  # 🔥 tera firebase key file
+cred = credentials.Certificate("firebase-key.json")  # 🔥 tera firebase key file
 firebase_admin.initialize_app(cred, {
     'databaseURL': 'https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com/'
 })
