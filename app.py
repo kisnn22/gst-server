@@ -3,44 +3,24 @@ from google.cloud import vision
 import firebase_admin
 from firebase_admin import credentials, db
 import re
-import time
-import firebase_admin
-from firebase_admin import credentials, db
-
-cred = credentials.Certificate("firebase-key.json")
-firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com/'
-})
 
 app = Flask(__name__)
 
-# ===== GOOGLE VISION CLIENT (SAFE INIT) =====
-client = None
-
-def get_client():
-    global client
-    if client is None:
-        client = vision.ImageAnnotatorClient()
-    return client
-
-@app.route('/test')
-def test():
-    return "Upload route working"
-    
 # ===== FIREBASE INIT =====
-cred = credentials.Certificate("firebase-key.json")  # 🔥 file naam same hona chahiye
+cred = credentials.Certificate("key.json")  # 🔥 tera firebase key file
 firebase_admin.initialize_app(cred, {
     'databaseURL': 'https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com/'
 })
 
+# ===== GOOGLE VISION =====
+client = vision.ImageAnnotatorClient()
+
 @app.route('/')
 def home():
-    return "🚀 OCR Server Running"
+    return "🚀 Server Running with Firebase"
 
-# ===== OCR FUNCTION =====
+# ===== OCR =====
 def extract_text(image_bytes):
-    client = get_client()  # 🔥 important fix
-
     image = vision.Image(content=image_bytes)
     response = client.text_detection(image=image)
 
@@ -50,23 +30,13 @@ def extract_text(image_bytes):
         return texts[0].description
     return ""
 
-# ===== GST DETECT =====
+# ===== GST FIND =====
 def find_gst(text):
     pattern = r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]"
     match = re.search(pattern, text)
     return match.group() if match else None
 
 # ===== UPLOAD =====
-from datetime import datetime
-
-ref = db.reference("GST_System")
-
-ref.set({
-    "alert": alert,
-    "gst_number": gst if gst else "Not Found",
-    "status": "Invoice Detected",
-    "timestamp": str(datetime.now())
-})
 @app.route('/upload', methods=['POST'])
 def upload():
 
@@ -78,37 +48,25 @@ def upload():
     print("📸 Image received")
 
     text = extract_text(image)
-    print("🧠 OCR TEXT:", text)
-
     gst = find_gst(text)
 
     if not gst:
         alert = "❌ GST Missing"
+        gst_value = "Not Found"
     else:
-        alert = f"✅ GST Found: {gst}"
+        alert = "✅ GST Found"
+        gst_value = gst
 
-    # ===== FIREBASE STORE (FINAL STRUCTURE 🔥) =====
-    ref_latest = db.reference('GST_System/latest')
-    ref_history = db.reference('GST_System/history')
+    print("📊 RESULT:", alert, gst_value)
 
-    data = {
-        "gst": gst if gst else "None",
+    # 🔥🔥🔥 FIREBASE PUSH
+    db.reference("GST_System").set({
         "alert": alert,
-        "text": text,
-        "timestamp": int(time.time())
-    }
-
-    # latest update
-    ref_latest.set(data)
-
-    # history save
-    ref_history.push(data)
-
-    return jsonify({
-        "gst": gst,
-        "alert": alert
+        "gst_number": gst_value,
+        "raw_text": text
     })
 
-# ===== RUN =====
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    return jsonify({
+        "alert": alert,
+        "gst": gst_value
+    })
