@@ -61,19 +61,25 @@ def find_gst(text):
 # ================= UPLOAD API =================
 @app.route('/upload', methods=['POST'])
 def upload():
+
     try:
         image = request.get_data()
 
-        if not image or len(image) < 100:
-            return {"error": "Invalid image"}, 400
+        if not image:
+            return {"error": "No image"}, 400
 
-        print("📸 Image received:", len(image))
+        # ✅ STEP 1
+        print("🔥 STEP 1: Upload API HIT")
 
+        # ✅ STEP 2
         text = extract_text(image)
-        print("🧠 OCR TEXT:", text)
+        print("🔥 STEP 2: OCR DONE")
 
+        # ✅ STEP 3
         gst = find_gst(text)
+        print("🔥 STEP 3: GST CHECK DONE")
 
+        # 👉 ALERT LOGIC (IMPORTANT - ye hona chahiye)
         if not gst:
             alert = "❌ GST Missing"
             gst_value = "Not Found"
@@ -81,22 +87,18 @@ def upload():
             alert = f"✅ GST Found: {gst}"
             gst_value = gst
 
-        print("📊 RESULT:", alert)
-
-        # ===== FIREBASE SAVE =====
+        # ✅ STEP 4 (YAHI PAR DAALNA HAI 🔥)
         try:
-            ref = db.reference("GST_System")
+            print("🔥 STEP 4: Writing to Firebase...")
 
-            data = {
+            ref = db.reference("GST_System")
+            ref.set({
                 "alert": alert,
                 "gst_number": gst_value,
-                "text": text,
-                "timestamp": int(time.time())
-            }
+                "text": text
+            })
 
-            ref.set(data)
-
-            print("🔥 Firebase Updated")
+            print("🔥 STEP 5: Firebase SUCCESS")
 
         except Exception as e:
             print("❌ Firebase Error:", e)
