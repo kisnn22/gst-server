@@ -1,107 +1,80 @@
 from flask import Flask, request, jsonify
-import firebase_admin
-from firebase_admin import credentials, db
-from google.cloud import vision
+import cv2
+import numpy as np
 import re
-import os
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 app = Flask(__name__)
 
 # ===== FIREBASE =====
 cred = credentials.Certificate("key.json")
-firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com/'
-})
+firebase_admin.initialize_app(cred)
+db = firestore.client()
 
-print("🔥 Firebase Connected")
+# ===== GST REGEX =====
+gst_pattern = r'\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1}'
 
-# ===== GOOGLE VISION =====
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "key.json"
-client = vision.ImageAnnotatorClient()
-
-print("🔥 Vision Ready")
-
-# ===== OCR FUNCTION =====
-def extract_text(image_bytes):
-    image = vision.Image(content=image_bytes)
-    response = client.text_detection(image=image)
-
-    texts = response.text_annotations
-    if texts:
-        return texts[0].description
-    return ""
-
-# ===== GST DETECTION =====
-def find_gst(text):
-    pattern = r"\b\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}Z[A-Z\d]{1}\b"
-    match = re.search(pattern, text)
-    return match.group() if match else None
+# ===== BLUR CHECK =====
+def is_blur(img):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    return cv2.Laplacian(gray, cv2.CV_64F).var() < 100
 
 # ===== INVOICE CHECK =====
 def is_invoice(text):
-    keywords = ["invoice", "bill", "gst", "tax"]
-    text = text.lower()
-    return any(word in text for word in keywords)
+    keywords = ["invoice", "gst", "bill", "tax"]
+    return any(k in text.lower() for k in keywords)
 
-# ===== BLUR CHECK =====
-def is_blur(text):
-    return len(text) < 20
+# ===== OCR =====
+def get_text(img):
+    import pytesseract
+    return pytesseract.image_to_string(img)
 
-# ===== ROUTES =====
-@app.route('/')
-def home():
-    return "GST SERVER RUNNING"
-
+# ===== ROUTE =====
 @app.route('/upload', methods=['POST'])
 def upload():
-    try:
-        image = request.get_data()
 
-        if not image:
-            return jsonify({"error": "No image"}), 400
+    file_bytes = np.frombuffer(request.data, np.uint8)
+    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-        print("🔥 STEP 1: Upload API HIT")
+    if img is None:
+        return jsonify({"error": "no image"})
 
-        text = extract_text(image)
-        print("🧾 OCR TEXT:\n", text)
+    # BLUR CHECK
+    if is_blur(img):
+        return jsonify({"status": "blur"})
 
-        # ===== BLUR CHECK =====
-        if is_blur(text):
-            return jsonify({"alert": "blur"})
+    text = get_text(img)
 
-        # ===== INVOICE CHECK =====
-        if not is_invoice(text):
-            return jsonify({"alert": "not_invoice"})
+    # INVOICE DETECTION
+    if not is_invoice(text):
+        return jsonify({"status": "not_invoice"})
 
-        gst = find_gst(text)
+    # GST FIND
+    gst_numbers = re.findall(gst_pattern, text)
 
-        if not gst:
-            alert = "❌ GST Missing"
-            gst_value = "Not Found"
-        else:
-            alert = "✅ GST Found"
-            gst_value = gst
+    if not gst_numbers:
+        return jsonify({"status": "no_gst"})
 
-        print("🔥 STEP 3: GST:", gst_value)
+    gst = gst_numbers[0]
 
-        # ===== SAVE TO FIREBASE =====
-        ref = db.reference("GST_System/history")
-        ref.push({
-            "alert": alert,
-            "gst_number": gst_value,
-            "text": text
-        })
+    # DUPLICATE CHECK
+    existing = db.collection("gst").document(gst).get()
 
-        print("🔥 Firebase Saved")
+    if existing.exists:
+        return jsonify({"status": "duplicate"})
 
-        return jsonify({
-            "alert": alert,
-            "gst": gst_value
-        })
+    # SAVE
+    db.collection("gst").document(gst).set({
+        "gst": gst
+    })
 
-    except Exception as e:
-        print("🔥 SERVER ERROR:", e)
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "status": "valid",
+        "gst": gst
+    })
 
-if __name__ == '__main__':
+
+# ===== RUN =====
+if __name__ == "__main__":
     app.run()
