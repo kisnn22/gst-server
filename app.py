@@ -7,6 +7,10 @@ from firebase_admin import credentials, firestore
 
 app = Flask(__name__)
 
+@app.route('/')
+def home():
+    return "GST Server Running 🚀"
+
 # ===== FIREBASE =====
 cred = credentials.Certificate("key.json")
 firebase_admin.initialize_app(cred)
