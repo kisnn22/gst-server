@@ -181,3 +181,7 @@ def upload():
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
 print ("using key file","key.json")
+from google.oauth2 import service_account
+
+creds = service_account.Credentials.from_service_account_file("key.json")
+print("🔥 PROJECT ID:", creds.project_id)
