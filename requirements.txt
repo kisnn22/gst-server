@@ -3,3 +3,5 @@ gunicorn
 requests
 google_cloud_vision
 firebase-admin
+opencv-python-headless
+numpy
