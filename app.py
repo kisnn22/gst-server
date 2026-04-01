@@ -5,6 +5,7 @@ import firebase_admin
 from firebase_admin import credentials, db
 import re
 import time
+import requests
 
 app = Flask(__name__)
 
@@ -31,10 +32,34 @@ try:
 except Exception as e:
     print("❌ Firebase Error:", e)
 
+# ================= NOTIFICATION =================
+def send_notification(title, body):
+    try:
+        url = "https://fcm.googleapis.com/fcm/send"
+
+        headers = {
+            "Authorization": "key=YOUR_FCM_SERVER_KEY",  # 🔥 replace this
+            "Content-Type": "application/json"
+        }
+
+        data = {
+            "to": "/topics/gst_alerts",
+            "notification": {
+                "title": title,
+                "body": body
+            }
+        }
+
+        requests.post(url, json=data, headers=headers)
+        print("🔔 Notification Sent")
+
+    except Exception as e:
+        print("❌ Notification Error:", e)
+
 # ================= HOME =================
 @app.route('/')
 def home():
-    return "🚀 GST OCR Server Running"
+    return "🚀 GST OCR PRO Server Running"
 
 # ================= OCR =================
 def extract_text(image_bytes):
@@ -76,33 +101,69 @@ def upload():
         text = extract_text(image)
         print("🔥 STEP 2: OCR DONE")
 
-        # GST detect
+        # GST detection
         gst = find_gst(text)
         print("🔥 STEP 3: GST CHECK DONE")
 
+        # ================= FRAUD DETECTION =================
+        duplicate = False
+        history = db.reference("GST_History").get()
+
+        if history and gst:
+            for key in history:
+                if history[key].get("gst_number") == gst:
+                    duplicate = True
+                    break
+
+        # ================= ALERT LOGIC =================
         if not gst:
             alert = "❌ GST Missing"
             gst_value = "Not Found"
-        else:
-            alert = f"✅ GST Found: {gst}"
+
+        elif len(gst) != 15:
+            alert = "⚠️ Invalid GST Format"
             gst_value = gst
 
-        # FIREBASE SAVE
-        try:
-            print("🔥 STEP 4: Writing to Firebase...")
+        elif duplicate:
+            alert = "⚠️ Duplicate GST Detected"
+            gst_value = gst
 
-            ref = db.reference("GST_System")
-            ref.set({
+        else:
+            alert = "✅ Valid Invoice"
+            gst_value = gst
+
+        print("📊 RESULT:", alert)
+
+        # ================= FIREBASE HISTORY =================
+        try:
+            print("🔥 STEP 4: Saving to Firebase History")
+
+            db.reference("GST_History").push({
                 "alert": alert,
                 "gst_number": gst_value,
                 "text": text,
                 "timestamp": int(time.time())
             })
 
-            print("🔥 STEP 5: Firebase SUCCESS")
+            print("🔥 History Saved")
 
         except Exception as e:
-            print("❌ Firebase Write Error:", e)
+            print("❌ History Error:", e)
+
+        # ================= LIVE STATUS =================
+        try:
+            db.reference("GST_System").set({
+                "alert": alert,
+                "gst_number": gst_value
+            })
+            print("🔥 Live Status Updated")
+        except Exception as e:
+            print("❌ Live Update Error:", e)
+
+        # ================= PUSH NOTIFICATION =================
+        send_notification("GST Alert", alert)
+
+        print("🔥 STEP 5: ALL DONE")
 
         return jsonify({
             "alert": alert,
