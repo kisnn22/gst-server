@@ -1,84 +1,125 @@
 from flask import Flask, request, jsonify
-import cv2
-import numpy as np
-import re
+from google.cloud import vision
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, db
+import numpy as np
+import cv2
+import re
+import datetime
+import os
 
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "GST Server Running 🚀"
+# ================= GOOGLE VISION =================
+client = vision.ImageAnnotatorClient()
 
-# ===== FIREBASE =====
+# ================= FIREBASE =================
 cred = credentials.Certificate("key.json")
-firebase_admin.initialize_app(cred)
-db = firestore.client()
+firebase_admin.initialize_app(cred, {
+    "databaseURL": "https://YOUR_DB.firebaseio.com/"
+})
 
-# ===== GST REGEX =====
-gst_pattern = r'\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1}'
+print("🔥 Firebase Connected")
 
-# ===== BLUR CHECK =====
-def is_blur(img):
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    return cv2.Laplacian(gray, cv2.CV_64F).var() < 100
+# ================= GST REGEX =================
+gst_pattern = r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]"
 
-# ===== INVOICE CHECK =====
+# ================= BLUR CHECK =================
+def is_blur(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    value = cv2.Laplacian(gray, cv2.CV_64F).var()
+    print("🔍 Blur Value:", value)
+    return value < 80
+
+# ================= OCR =================
+def extract_text(image_bytes):
+    image = vision.Image(content=image_bytes)
+    response = client.text_detection(image=image)
+    texts = response.text_annotations
+
+    if texts:
+        return texts[0].description
+    return ""
+
+# ================= INVOICE CHECK =================
 def is_invoice(text):
-    keywords = ["invoice", "gst", "bill", "tax"]
+    keywords = ["invoice", "bill", "gst", "tax"]
     return any(k in text.lower() for k in keywords)
 
-# ===== OCR =====
-def get_text(img):
-    import pytesseract
-    return pytesseract.image_to_string(img)
+# ================= ROUTES =================
+@app.route('/')
+def home():
+    return "🚀 GST AI Server Running"
 
-# ===== ROUTE =====
 @app.route('/upload', methods=['POST'])
 def upload():
 
-    file_bytes = np.frombuffer(request.data, np.uint8)
-    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    try:
+        print("\n🔥 ===== NEW REQUEST =====")
 
-    if img is None:
-        return jsonify({"error": "no image"})
+        image_bytes = request.get_data()
 
-    # BLUR CHECK
-    if is_blur(img):
-        return jsonify({"status": "blur"})
+        if not image_bytes:
+            return jsonify({"status": "error", "msg": "no image"})
 
-    text = get_text(img)
+        # ===== IMAGE DECODE =====
+        npimg = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
 
-    # INVOICE DETECTION
-    if not is_invoice(text):
-        return jsonify({"status": "not_invoice"})
+        # ===== BLUR CHECK =====
+        if is_blur(img):
+            print("⚠ Image Blur")
+            return jsonify({"status": "BLUR"})
 
-    # GST FIND
-    gst_numbers = re.findall(gst_pattern, text)
+        # ===== OCR =====
+        text = extract_text(image_bytes)
+        print("🧠 OCR TEXT:\n", text)
 
-    if not gst_numbers:
-        return jsonify({"status": "no_gst"})
+        # ===== INVOICE CHECK =====
+        if not is_invoice(text):
+            print("❌ Not Invoice")
+            return jsonify({"status": "NOT_INVOICE"})
 
-    gst = gst_numbers[0]
+        # ===== GST FIND =====
+        gst_list = re.findall(gst_pattern, text)
 
-    # DUPLICATE CHECK
-    existing = db.collection("gst").document(gst).get()
+        if not gst_list:
+            print("❌ GST Missing")
+            return jsonify({"status": "GST_MISSING"})
 
-    if existing.exists:
-        return jsonify({"status": "duplicate"})
+        gst = gst_list[0]
+        print("✅ GST Found:", gst)
 
-    # SAVE
-    db.collection("gst").document(gst).set({
-        "gst": gst
-    })
+        # ===== DUPLICATE CHECK =====
+        ref = db.reference("GST_History")
+        data = ref.get()
 
-    return jsonify({
-        "status": "valid",
-        "gst": gst
-    })
+        if data:
+            for key in data:
+                if data[key]["gst"] == gst:
+                    print("⚠ Duplicate GST")
+                    return jsonify({"status": "DUPLICATE", "gst": gst})
+
+        # ===== SAVE TO FIREBASE =====
+        new_data = {
+            "gst": gst,
+            "text": text,
+            "time": str(datetime.datetime.now()),
+            "status": "valid"
+        }
+
+        ref.push(new_data)
+        print("🔥 Saved to Firebase")
+
+        return jsonify({
+            "status": "VALID_INVOICE",
+            "gst": gst
+        })
+
+    except Exception as e:
+        print("❌ ERROR:", e)
+        return jsonify({"status": "error", "msg": str(e)})
 
 
-# ===== RUN =====
 if __name__ == "__main__":
-    app.run()
+    app.run(host="0.0.0.0", port=10000)
