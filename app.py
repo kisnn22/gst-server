@@ -6,6 +6,8 @@ from firebase_admin import credentials, db
 import re
 import time
 import requests
+import os
+print("files:",os.listdir())
 
 app = Flask(__name__)
 
@@ -178,3 +180,4 @@ def upload():
 # ================= RUN =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+print ("using key file","key.json")
