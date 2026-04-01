@@ -1,14 +1,11 @@
 from flask import Flask, request, jsonify
-from google.cloud import vision
 import firebase_admin
 from firebase_admin import credentials, db
-import re, os, cv2, numpy as np
-from datetime import datetime
+from google.cloud import vision
+import re
+import os
 
 app = Flask(__name__)
-
-# ===== GOOGLE VISION =====
-client = vision.ImageAnnotatorClient()
 
 # ===== FIREBASE =====
 cred = credentials.Certificate("key.json")
@@ -18,93 +15,93 @@ firebase_admin.initialize_app(cred, {
 
 print("🔥 Firebase Connected")
 
-# ===== OCR =====
+# ===== GOOGLE VISION =====
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "key.json"
+client = vision.ImageAnnotatorClient()
+
+print("🔥 Vision Ready")
+
+# ===== OCR FUNCTION =====
 def extract_text(image_bytes):
     image = vision.Image(content=image_bytes)
     response = client.text_detection(image=image)
-    texts = response.text_annotations
-    return texts[0].description if texts else ""
 
-# ===== GST FIND =====
+    texts = response.text_annotations
+    if texts:
+        return texts[0].description
+    return ""
+
+# ===== GST DETECTION =====
 def find_gst(text):
-    pattern = r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]"
+    pattern = r"\b\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}Z[A-Z\d]{1}\b"
     match = re.search(pattern, text)
     return match.group() if match else None
 
+# ===== INVOICE CHECK =====
+def is_invoice(text):
+    keywords = ["invoice", "bill", "gst", "tax"]
+    text = text.lower()
+    return any(word in text for word in keywords)
+
 # ===== BLUR CHECK =====
-def is_blurry(image_bytes):
-    nparr = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
-    val = cv2.Laplacian(img, cv2.CV_64F).var()
-    print("Blur:", val)
-    return val < 100
+def is_blur(text):
+    return len(text) < 20
 
-# ===== DUPLICATE CHECK =====
-def is_duplicate(gst):
-    ref = db.reference("history")
-    data = ref.get()
-
-    if data:
-        for key in data:
-            if data[key]["gst"] == gst:
-                return True
-    return False
-
-# ===== ROUTE =====
+# ===== ROUTES =====
 @app.route('/')
 def home():
-    return "Server Running 🚀"
+    return "GST SERVER RUNNING"
 
 @app.route('/upload', methods=['POST'])
 def upload():
+    try:
+        image = request.get_data()
 
-    image = request.data
+        if not image:
+            return jsonify({"error": "No image"}), 400
 
-    if not image:
-        return {"error": "No image"}, 400
+        print("🔥 STEP 1: Upload API HIT")
 
-    print("🔥 Upload Received")
+        text = extract_text(image)
+        print("🧾 OCR TEXT:\n", text)
 
-    # Blur check
-    if is_blurry(image):
-        return jsonify({"alert": "blur"})
+        # ===== BLUR CHECK =====
+        if is_blur(text):
+            return jsonify({"alert": "blur"})
 
-    text = extract_text(image)
-    print("OCR:", text)
+        # ===== INVOICE CHECK =====
+        if not is_invoice(text):
+            return jsonify({"alert": "not_invoice"})
 
-    gst = find_gst(text)
+        gst = find_gst(text)
 
-    if not gst:
-        alert = "❌ GST Missing"
-        status = "invalid"
-
-    else:
-        if is_duplicate(gst):
-            alert = "🚨 Duplicate Invoice"
-            status = "fraud"
+        if not gst:
+            alert = "❌ GST Missing"
+            gst_value = "Not Found"
         else:
-            alert = f"✅ GST Found: {gst}"
-            status = "valid"
+            alert = "✅ GST Found"
+            gst_value = gst
 
-    # SAVE HISTORY
-    db.reference("history").push({
-        "gst": gst,
-        "text": text,
-        "status": status,
-        "time": str(datetime.now())
-    })
+        print("🔥 STEP 3: GST:", gst_value)
 
-    # LIVE NODE
-    db.reference("GST_System").set({
-        "alert": alert,
-        "gst": gst,
-        "status": status
-    })
+        # ===== SAVE TO FIREBASE =====
+        ref = db.reference("GST_System/history")
+        ref.push({
+            "alert": alert,
+            "gst_number": gst_value,
+            "text": text
+        })
 
-    return jsonify({
-        "alert": alert,
-        "status": status
-    })
+        print("🔥 Firebase Saved")
 
-if __name__ == "__main__":
+        return jsonify({
+            "alert": alert,
+            "gst": gst_value
+        })
+
+    except Exception as e:
+        print("🔥 SERVER ERROR:", e)
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
     app.run()
