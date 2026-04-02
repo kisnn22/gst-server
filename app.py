@@ -5,7 +5,6 @@ from firebase_admin import credentials, db
 import re
 import cv2
 import numpy as np
-import base64
 
 app = Flask(__name__)
 
@@ -25,7 +24,7 @@ def extract_text(image_bytes):
     texts = response.text_annotations
     return texts[0].description if texts else ""
 
-# ===== BLUR DETECTION =====
+# ===== BLUR CHECK =====
 def is_blur(image_bytes):
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
@@ -33,15 +32,19 @@ def is_blur(image_bytes):
     return score < 50
 
 # ===== INVOICE DETECTION =====
-def is_invoice(text):
+def invoice_confidence(text):
     keywords = ["invoice", "bill", "gst", "tax"]
     score = sum(1 for k in keywords if k in text.lower())
-    return score >= 2
+    return score / len(keywords)
 
 # ===== GST FIND =====
 def find_gst(text):
     match = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]", text)
     return match[0] if match else None
+
+# ===== FAKE GST CHECK =====
+def fake_gst(gst):
+    return gst.startswith("00")
 
 @app.route('/')
 def home():
@@ -54,36 +57,39 @@ def upload():
     if not image:
         return jsonify({"status": "ERROR"})
 
-    # 🔍 OCR
     text = extract_text(image)
 
-    # 🔍 BLUR CHECK
+    # BLUR
     if is_blur(image):
         return jsonify({"status": "BLUR"})
 
-    # 🔍 INVOICE CHECK
-    if not is_invoice(text):
-        return jsonify({"status": "NOT_INVOICE"})
+    # INVOICE CONFIDENCE
+    conf = invoice_confidence(text)
+    if conf < 0.4:
+        return jsonify({"status": "NOT_INVOICE", "confidence": conf})
 
-    # 🔍 GST CHECK
+    # GST
     gst = find_gst(text)
-
     if not gst:
         return jsonify({"status": "GST_MISSING"})
 
-    # 🔍 DUPLICATE CHECK
+    # FAKE GST
+    if fake_gst(gst):
+        return jsonify({"status": "FAKE_GST"})
+
+    # DUPLICATE CHECK
     ref = db.reference("GST_HISTORY")
     data = ref.get() or {}
 
     if gst in data:
         return jsonify({"status": "DUPLICATE_GST", "gst": gst})
 
-    # SAVE NEW GST
     ref.child(gst).set({"detected": True})
 
     return jsonify({
         "status": "VALID_INVOICE",
-        "gst": gst
+        "gst": gst,
+        "confidence": conf
     })
 
 if __name__ == "__main__":
