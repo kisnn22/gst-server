@@ -7,7 +7,9 @@ import firebase_admin
 from firebase_admin import credentials, db
 
 app = Flask(__name__)
-
+@app.route('/')
+def home():
+    return "🔥 GST AI SERVER RUNNING"
 # FIREBASE
 cred = credentials.Certificate("key.json")
 firebase_admin.initialize_app(cred, {
