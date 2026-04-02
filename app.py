@@ -11,9 +11,10 @@ app = Flask(__name__)
 # ===== FIREBASE =====
 cred = credentials.Certificate("key.json")
 firebase_admin.initialize_app(cred, {
-    "databaseURL": "https://your-db.firebaseio.com/"
+    "databaseURL": "https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com"
 })
 
+# ===== VISION CLIENT =====
 client = vision.ImageAnnotatorClient()
 
 # ===== OCR =====
@@ -21,84 +22,124 @@ def extract_text(image_bytes):
     image = vision.Image(content=image_bytes)
     response = client.text_detection(image=image)
     texts = response.text_annotations
-    return texts[0].description if texts else ""
 
-# ===== BLUR =====
+    if texts:
+        return texts[0].description
+    return ""
+
+# ===== BLUR DETECTION =====
 def is_blur(image_bytes):
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
-    return cv2.Laplacian(img, cv2.CV_64F).var() < 50
 
-# ===== GST =====
+    if img is None:
+        return True
+
+    variance = cv2.Laplacian(img, cv2.CV_64F).var()
+    print("BLUR SCORE:", variance)
+
+    return variance < 40   # tuned
+
+# ===== GST FINDER (STRONG) =====
 def find_gst(text):
-    match = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]", text)
-    return match[0] if match else None
+    matches = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]", text)
+    return matches[0] if matches else None
 
-# ===== STRONG INVOICE CHECK 🔥
+# ===== INVOICE DETECTION (AI LEVEL) =====
 def is_invoice(text):
     text = text.lower()
 
+    keywords = [
+        "invoice", "bill", "gst", "tax", "total",
+        "amount", "invoice no", "invoice number"
+    ]
+
     score = 0
 
-    if "invoice" in text: score += 2
-    if "bill" in text: score += 1
-    if "gst" in text: score += 2
-    if "tax" in text: score += 1
-    if "total" in text: score += 1
-    if "amount" in text: score += 1
+    for word in keywords:
+        if word in text:
+            score += 1
 
     gst = find_gst(text)
     if gst:
-        score += 3   # 🔥 biggest signal
+        score += 5   # 🔥 strongest signal
 
-    return score >= 3   # threshold
+    if len(text) > 80:
+        score += 2
+
+    print("INVOICE SCORE:", score)
+
+    return score >= 4
 
 # ===== FAKE GST =====
 def fake_gst(gst):
     return gst.startswith("00")
 
+# ===== HOME =====
 @app.route('/')
 def home():
     return "🔥 GST AI SERVER RUNNING"
 
+# ===== MAIN API =====
 @app.route('/upload', methods=['POST'])
 def upload():
 
     image = request.get_data()
+
     if not image:
         return jsonify({"status": "ERROR"})
 
-    text = extract_text(image)
+    print("\n===== NEW REQUEST =====")
 
-    print("OCR TEXT:\n", text)
-
-    # BLUR
+    # ===== BLUR CHECK =====
     if is_blur(image):
+        print("❌ BLUR DETECTED")
         return jsonify({"status": "BLUR"})
 
-    # INVOICE CHECK
+    # ===== OCR =====
+    text = extract_text(image)
+
+    print("\n===== OCR TEXT =====")
+    print(text)
+    print("====================")
+
+    # ===== INVOICE CHECK =====
     if not is_invoice(text):
+        print("❌ NOT INVOICE")
         return jsonify({"status": "NOT_INVOICE"})
 
-    # GST
+    # ===== GST =====
     gst = find_gst(text)
+
     if not gst:
+        print("❌ GST MISSING")
         return jsonify({"status": "GST_MISSING"})
 
-    # FAKE
+    print("✅ GST FOUND:", gst)
+
+    # ===== FAKE GST =====
     if fake_gst(gst):
+        print("❌ FAKE GST")
         return jsonify({"status": "FAKE_GST"})
 
-    # DUPLICATE
+    # ===== DUPLICATE CHECK =====
     ref = db.reference("GST_HISTORY")
     data = ref.get() or {}
 
     if gst in data:
+        print("⚠️ DUPLICATE GST")
         return jsonify({"status": "DUPLICATE_GST"})
 
-    ref.child(gst).set({"ok": True})
+    # ===== SAVE =====
+    ref.child(gst).set({"valid": True})
 
-    return jsonify({"status": "VALID_INVOICE", "gst": gst})
+    print("✅ VALID INVOICE")
 
+    return jsonify({
+        "status": "VALID_INVOICE",
+        "gst": gst
+    })
+
+# ===== RUN =====
 if __name__ == "__main__":
     app.run()
