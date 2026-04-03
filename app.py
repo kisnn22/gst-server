@@ -5,122 +5,136 @@ from firebase_admin import credentials, db
 import re
 import cv2
 import numpy as np
+from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input
+from tensorflow.keras.preprocessing.image import img_to_array
 
 app = Flask(__name__)
 
-# ===== FIREBASE =====
+# Firebase
 cred = credentials.Certificate("key.json")
 firebase_admin.initialize_app(cred, {
-    "databaseURL": "https://your-project-id-default-rtdb.firebaseio.com/"
+    "databaseURL": "https://your-db.firebaseio.com/"
 })
 
-# ===== VISION =====
 client = vision.ImageAnnotatorClient()
 
-# ===== OCR =====
-def extract_text(img):
-    image = vision.Image(content=img)
-    res = client.text_detection(image=image)
-    texts = res.text_annotations
+# AI MODEL
+model = MobileNetV2(weights="imagenet")
+
+# OCR
+def extract_text(image_bytes):
+    image = vision.Image(content=image_bytes)
+    response = client.text_detection(image=image)
+    texts = response.text_annotations
     return texts[0].description if texts else ""
 
-# ===== IMAGE QUALITY AI =====
-def image_quality_score(img):
-    arr = np.frombuffer(img, np.uint8)
-    im = cv2.imdecode(arr, cv2.IMREAD_GRAYSCALE)
-
-    if im is None:
-        return 0
-
-    blur = cv2.Laplacian(im, cv2.CV_64F).var()
-    edges = cv2.Canny(im, 50, 150).sum()
-
-    score = (blur * 0.6) + (edges * 0.0001)
-
-    print("QUALITY SCORE:", score)
-
-    return score
-
-# ===== GST DETECTION =====
+# GST FIND
 def find_gst(text):
-    matches = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]", text)
-    return matches[0] if matches else None
+    match = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]", text)
+    return match[0] if match else None
 
-# ===== AI INVOICE DETECTION =====
-def invoice_confidence(text):
-    text = text.lower()
+# BLUR
+def is_blur(image_bytes):
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+    return cv2.Laplacian(img, cv2.CV_64F).var() < 50
 
-    keywords = ["invoice","bill","gst","tax","amount","total"]
-    score = sum([1 for k in keywords if k in text])
+# 🔥 CONTOUR DETECTION (INVOICE SHAPE)
+def detect_paper(image_bytes):
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 50, 150)
+
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    for cnt in contours:
+        approx = cv2.approxPolyDP(cnt, 0.02 * cv2.arcLength(cnt, True), True)
+        if len(approx) == 4:
+            area = cv2.contourArea(cnt)
+            if area > 5000:
+                return True
+    return False
+
+# 🔥 AI IMAGE CHECK
+def is_invoice_ai(image_bytes):
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    img = cv2.resize(img, (224, 224))
+
+    img = img_to_array(img)
+    img = preprocess_input(img)
+    img = np.expand_dims(img, axis=0)
+
+    preds = model.predict(img)
+
+    # MobileNet generic check (paper-like objects)
+    confidence = np.max(preds)
+
+    return confidence > 0.5
+
+# 🔥 FINAL INVOICE CHECK (COMBINED)
+def is_invoice(text, image_bytes):
+
+    # STEP 1: AI Image check
+    if not is_invoice_ai(image_bytes):
+        return False
+
+    # STEP 2: Paper detection
+    if not detect_paper(image_bytes):
+        return False
+
+    # STEP 3: OCR validation
+    if len(text) < 50:
+        return False
+
+    score = 0
+    if "invoice" in text.lower(): score += 3
+    if "gst" in text.lower(): score += 3
+    if "total" in text.lower(): score += 1
 
     if find_gst(text):
         score += 5
 
-    if len(text) > 80:
-        score += 2
+    return score >= 6
 
-    return score
-
-# ===== FAKE GST CHECK =====
-def fake_gst(gst):
-    return gst.startswith("00")
-
+# API
 @app.route('/')
 def home():
-    return "🔥 AI GST SERVER LIVE"
+    return "AI GST SERVER RUNNING"
 
 @app.route('/upload', methods=['POST'])
 def upload():
-    try:
-        img = request.get_data()
 
-        if not img:
-            return jsonify({"status":"ERROR"})
+    image = request.get_data()
 
-        # 🔹 STEP 1: IMAGE QUALITY
-        quality = image_quality_score(img)
+    if not image:
+        return jsonify({"status": "ERROR"})
 
-        if quality < 50:
-            return jsonify({"status":"LOW_QUALITY"})
+    if is_blur(image):
+        return jsonify({"status": "BLUR"})
 
-        # 🔹 STEP 2: OCR
-        text = extract_text(img)
+    text = extract_text(image)
 
-        print("\nOCR:\n", text)
+    if not is_invoice(text, image):
+        return jsonify({"status": "NOT_INVOICE"})
 
-        # 🔹 STEP 3: AI CONFIDENCE
-        conf = invoice_confidence(text)
+    gst = find_gst(text)
 
-        print("CONFIDENCE:", conf)
+    if not gst:
+        return jsonify({"status": "GST_MISSING"})
 
-        if conf < 5:
-            return jsonify({"status":"NOT_INVOICE"})
+    # Duplicate check
+    ref = db.reference("GST_HISTORY")
+    data = ref.get() or {}
 
-        # 🔹 STEP 4: GST
-        gst = find_gst(text)
+    if gst in data:
+        return jsonify({"status": "DUPLICATE_GST"})
 
-        if not gst:
-            return jsonify({"status":"GST_MISSING"})
+    ref.child(gst).set({"ok": True})
 
-        # 🔹 STEP 5: FAKE GST
-        if fake_gst(gst):
-            return jsonify({"status":"FAKE_GST"})
+    return jsonify({"status": "VALID_INVOICE", "gst": gst})
 
-        # 🔹 STEP 6: DUPLICATE
-        ref = db.reference("GST_HISTORY")
-        data = ref.get() or {}
-
-        if gst in data:
-            return jsonify({"status":"DUPLICATE_GST"})
-
-        ref.child(gst).set({"valid":True})
-
-        return jsonify({
-            "status":"VALID_INVOICE",
-            "gst":gst,
-            "confidence":conf
-        })
-
-    except Exception as e:
-        print("ERROR:", e)
-        return jsonify({"status":"ERROR"})
+if __name__ == "__main__":
+    app.run()
