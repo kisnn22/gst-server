@@ -5,8 +5,6 @@ from firebase_admin import credentials, db
 import re
 import cv2
 import numpy as np
-from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input
-from tensorflow.keras.preprocessing.image import img_to_array
 
 app = Flask(__name__)
 
@@ -18,9 +16,6 @@ firebase_admin.initialize_app(cred, {
 
 client = vision.ImageAnnotatorClient()
 
-# AI MODEL
-model = MobileNetV2(weights="imagenet")
-
 # OCR
 def extract_text(image_bytes):
     image = vision.Image(content=image_bytes)
@@ -28,7 +23,7 @@ def extract_text(image_bytes):
     texts = response.text_annotations
     return texts[0].description if texts else ""
 
-# GST FIND
+# GST
 def find_gst(text):
     match = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]", text)
     return match[0] if match else None
@@ -39,8 +34,8 @@ def is_blur(image_bytes):
     img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
     return cv2.Laplacian(img, cv2.CV_64F).var() < 50
 
-# 🔥 CONTOUR DETECTION (INVOICE SHAPE)
-def detect_paper(image_bytes):
+# 🔥 PAPER DETECTION (AI SUBSTITUTE)
+def detect_invoice_shape(image_bytes):
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
@@ -51,45 +46,26 @@ def detect_paper(image_bytes):
 
     for cnt in contours:
         approx = cv2.approxPolyDP(cnt, 0.02 * cv2.arcLength(cnt, True), True)
-        if len(approx) == 4:
-            area = cv2.contourArea(cnt)
-            if area > 5000:
-                return True
+        area = cv2.contourArea(cnt)
+
+        if len(approx) == 4 and area > 5000:
+            return True
+
     return False
 
-# 🔥 AI IMAGE CHECK
-def is_invoice_ai(image_bytes):
-    nparr = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    img = cv2.resize(img, (224, 224))
-
-    img = img_to_array(img)
-    img = preprocess_input(img)
-    img = np.expand_dims(img, axis=0)
-
-    preds = model.predict(img)
-
-    # MobileNet generic check (paper-like objects)
-    confidence = np.max(preds)
-
-    return confidence > 0.5
-
-# 🔥 FINAL INVOICE CHECK (COMBINED)
+# 🔥 FINAL LOGIC
 def is_invoice(text, image_bytes):
 
-    # STEP 1: AI Image check
-    if not is_invoice_ai(image_bytes):
+    # STEP 1: shape detection
+    if not detect_invoice_shape(image_bytes):
         return False
 
-    # STEP 2: Paper detection
-    if not detect_paper(image_bytes):
-        return False
-
-    # STEP 3: OCR validation
+    # STEP 2: text check
     if len(text) < 50:
         return False
 
     score = 0
+
     if "invoice" in text.lower(): score += 3
     if "gst" in text.lower(): score += 3
     if "total" in text.lower(): score += 1
@@ -99,10 +75,9 @@ def is_invoice(text, image_bytes):
 
     return score >= 6
 
-# API
 @app.route('/')
 def home():
-    return "AI GST SERVER RUNNING"
+    return "GST AI SERVER RUNNING"
 
 @app.route('/upload', methods=['POST'])
 def upload():
@@ -125,7 +100,6 @@ def upload():
     if not gst:
         return jsonify({"status": "GST_MISSING"})
 
-    # Duplicate check
     ref = db.reference("GST_HISTORY")
     data = ref.get() or {}
 
