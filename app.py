@@ -141,9 +141,7 @@ def upload():
 
 
 
-    # --- STEP 2: Only check for blur on the zoomed-in document itself! ---
-    if is_blur(processed_image):
-        return jsonify({"status": "BLUR"})
+
 
     # --- STEP 3: Feed the perfectly flat, cropped image to Google Cloud Vision ---
     text = extract_text(processed_image)
