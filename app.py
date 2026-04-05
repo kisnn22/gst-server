@@ -34,33 +34,81 @@ def is_blur(image_bytes):
     img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
     return cv2.Laplacian(img, cv2.CV_64F).var() < 50
 
-# 🔥 PAPER DETECTION (AI SUBSTITUTE)
-def detect_invoice_shape(image_bytes):
+# 🔥 AUTO-ZOOM AND MAP PERSPECTIVE 
+def crop_invoice(image_bytes):
+    # Decode image
     nparr = np.frombuffer(image_bytes, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
+    # Grayscale, blur, and edge detection
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, 50, 150)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(gray, 75, 200)
 
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
+    # Find the contours
+    contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
+    
+    screen_cnt = None
     for cnt in contours:
-        approx = cv2.approxPolyDP(cnt, 0.02 * cv2.arcLength(cnt, True), True)
-        area = cv2.contourArea(cnt)
+        peri = cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+        
+        # If our contour has 4 points and is significantly large, we found the paper!
+        if len(approx) == 4 and cv2.contourArea(cnt) > 5000:
+            screen_cnt = approx
+            break
+            
+    # If no paper shape is found at all, return the original untouched image
+    if screen_cnt is None:
+        return False, image_bytes
+        
+    # --- FIX ANGLE AND CROPPING ---
+    pts = screen_cnt.reshape(4, 2)
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)] # Top-Left
+    rect[2] = pts[np.argmax(s)] # Bottom-Right
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)] # Top-Right
+    rect[3] = pts[np.argmax(diff)] # Bottom-Left
 
-        if len(approx) == 4 and area > 5000:
-            return True
+    (tl, tr, br, bl) = rect
 
-    return False
+    # Calculate max width of the new flat image
+    widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+    widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+    maxWidth = max(int(widthA), int(widthB))
+
+    # Calculate max height
+    heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+    heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+    maxHeight = max(int(heightA), int(heightB))
+
+    # Construct the flat destination point grid
+    dst = np.array([
+        [0, 0],
+        [maxWidth - 1, 0],
+        [maxWidth - 1, maxHeight - 1],
+        [0, maxHeight - 1]], dtype="float32")
+
+    # Mathematically stretch and flatten the angled square!
+    M = cv2.getPerspectiveTransform(rect, dst)
+    warped = cv2.warpPerspective(img, M, (maxWidth, maxHeight))
+
+    # Make grayscale scanner-style so OCR gets zero distractions
+    warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+    
+    # Re-encode to bytes so Google Vision can read it
+    is_success, buffer = cv2.imencode(".jpg", warped_gray)
+    if is_success:
+        return True, buffer.tobytes()
+        
+    return False, image_bytes
 
 # 🔥 FINAL LOGIC
-def is_invoice(text, image_bytes):
-
-    # STEP 1: shape detection
-    if not detect_invoice_shape(image_bytes):
-        return False
-
-    # STEP 2: text check
+def is_invoice(text):
+    # STEP: text check
     if len(text) < 50:
         return False
 
@@ -87,12 +135,21 @@ def upload():
     if not image:
         return jsonify({"status": "ERROR"})
 
-    if is_blur(image):
+    # --- STEP 1: Process and flatten the image first! ---
+    has_shape, processed_image = crop_invoice(image)
+
+    # If it couldn't even find a square document shape, reject it safely!
+    if not has_shape:
+         return jsonify({"status": "NOT_INVOICE"})
+
+    # --- STEP 2: Only check for blur on the zoomed-in document itself! ---
+    if is_blur(processed_image):
         return jsonify({"status": "BLUR"})
 
-    text = extract_text(image)
+    # --- STEP 3: Feed the perfectly flat, cropped image to Google Cloud Vision ---
+    text = extract_text(processed_image)
 
-    if not is_invoice(text, image):
+    if not is_invoice(text):
         return jsonify({"status": "NOT_INVOICE"})
 
     gst = find_gst(text)
