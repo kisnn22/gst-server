@@ -138,9 +138,7 @@ def upload():
     # --- STEP 1: Process and flatten the image first! ---
     has_shape, processed_image = crop_invoice(image)
 
-    # If it couldn't even find a square document shape, reject it safely!
-    if not has_shape:
-         return jsonify({"status": "NOT_INVOICE"})
+
 
     # --- STEP 2: Only check for blur on the zoomed-in document itself! ---
     if is_blur(processed_image):
