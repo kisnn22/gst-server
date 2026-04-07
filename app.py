@@ -128,41 +128,45 @@ def is_invoice(text):
 def home():
     return "GST AI SERVER RUNNING"
 
+import traceback
+
 @app.route('/upload', methods=['POST'])
 def upload():
+    try:
+        image = request.get_data()
 
-    image = request.get_data()
+        if not image:
+            return jsonify({"status": "ERROR"})
 
-    if not image:
-        return jsonify({"status": "ERROR"})
+        # --- STEP 1: Process and flatten the image first! ---
+        has_shape, processed_image = crop_invoice(image)
 
-    # --- STEP 1: Process and flatten the image first! ---
-    has_shape, processed_image = crop_invoice(image)
+        # --- STEP 2: Feed the perfectly flat, cropped image to Google Cloud Vision ---
+        text = extract_text(processed_image)
 
+        # --- STEP 3: Validate the text ---
+        if not is_invoice(text):
+            return jsonify({"status": "NOT_INVOICE"})
 
+        gst = find_gst(text)
 
+        if not gst:
+            return jsonify({"status": "GST_MISSING"})
 
+        ref = db.reference("GST_HISTORY")
+        data = ref.get() or {}
 
-    # --- STEP 3: Feed the perfectly flat, cropped image to Google Cloud Vision ---
-    text = extract_text(processed_image)
+        if gst in data:
+            return jsonify({"status": "DUPLICATE_GST"})
 
-    if not is_invoice(text):
-        return jsonify({"status": "NOT_INVOICE"})
+        ref.child(gst).set({"ok": True})
 
-    gst = find_gst(text)
-
-    if not gst:
-        return jsonify({"status": "GST_MISSING"})
-
-    ref = db.reference("GST_HISTORY")
-    data = ref.get() or {}
-
-    if gst in data:
-        return jsonify({"status": "DUPLICATE_GST"})
-
-    ref.child(gst).set({"ok": True})
-
-    return jsonify({"status": "VALID_INVOICE", "gst": gst})
+        return jsonify({"status": "VALID_INVOICE", "gst": gst})
+        
+    except Exception as e:
+        # If the server crashes, it catches the exact error and sends it to the Arduino!
+        print("CRASH LOG:", traceback.format_exc())
+        return jsonify({"status": "PYTHON_CRASH", "error": str(e)})
 
 if __name__ == "__main__":
     app.run()
