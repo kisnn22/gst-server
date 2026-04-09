@@ -164,18 +164,25 @@ def upload():
         if not gst:
             return jsonify({"status": "GST_MISSING"})
 
-        ref = db.reference("GST_HISTORY")
-        data = ref.get() or {}
+        try:
+            # --- STEP 4: Save to Firebase ---
+            ref = db.reference("GST_HISTORY")
+            data = ref.get() or {}
 
-        if gst in data:
-            return jsonify({"status": "DUPLICATE_GST"})
+            if gst in data:
+                return jsonify({"status": "DUPLICATE_GST"})
 
-        ref.child(gst).set({"ok": True})
+            ref.child(gst).set({"ok": True})
+            
+        except Exception as fb_error:
+            # If Google Vision worked, but Firebase failed, catch it here!
+            print("FIREBASE CRASH LOG:", str(fb_error))
+            return jsonify({"status": "FIREBASE_CRASH", "gst": gst, "error": str(fb_error)})
 
         return jsonify({"status": "VALID_INVOICE", "gst": gst})
         
     except Exception as e:
-        print("CRASH LOG:", traceback.format_exc())
+        print("VISION CRASH LOG:", traceback.format_exc())
         return jsonify({"status": "PYTHON_CRASH", "error": str(e)})
 
 
