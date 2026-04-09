@@ -47,7 +47,11 @@ def crop_invoice(image_bytes):
         
         # 🟢 VERIFY IMAGE IS NOT BLURRY (Matches ESP32 logic)
         variance = cv2.Laplacian(gray, cv2.CV_64F).var()
-        if variance < 85:
+        print(f"📷 Image Sharpness Variance: {variance:.2f}") # Helps debugging on Render
+        
+        # ESP32-CAM OV2640 lenses are naturally a bit soft. 
+        # A threshold of 40 is much more forgiving than 85.
+        if variance < 40:
             return "BLUR", image_bytes
 
         # Apply slight blur just for edge detection algorithms
