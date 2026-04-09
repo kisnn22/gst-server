@@ -8,6 +8,7 @@ import re
 import cv2
 import numpy as np
 
+
 app = Flask(__name__)
 
 # Firebase Authentication
@@ -32,7 +33,7 @@ def find_gst(text):
     match = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]", text)
     return match[0] if match else None
 
-# 🔥 BULLETPROOF AUTO-ZOOM 
+# 🔥 BULLETPROOF AUTO-ZOOM & BLUR DETECTION
 def crop_invoice(image_bytes):
     try:
         nparr = np.frombuffer(image_bytes, np.uint8)
@@ -41,10 +42,17 @@ def crop_invoice(image_bytes):
         if img is None:
             return False, image_bytes
 
-        # Grayscale, blur, and edge detection
+        # Grayscale conversion
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(gray, 75, 200)
+        
+        # 🟢 VERIFY IMAGE IS NOT BLURRY (Matches ESP32 logic)
+        variance = cv2.Laplacian(gray, cv2.CV_64F).var()
+        if variance < 85:
+            return "BLUR", image_bytes
+
+        # Apply slight blur just for edge detection algorithms
+        gray_blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        edges = cv2.Canny(gray_blurred, 75, 200)
 
         cnts = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
         contours = cnts[0] if len(cnts) == 2 else cnts[1]
@@ -132,6 +140,10 @@ def upload():
 
         # --- STEP 1: Process and flatten the image first! ---
         has_shape, processed_image = crop_invoice(image)
+
+        if has_shape == "BLUR":
+            print("❌ Image was too blurry. Aborting Vision API!")
+            return jsonify({"status": "BLUR"})
 
         # --- STEP 2: Feed the perfectly flat, cropped image to Google Cloud Vision ---
         text = extract_text(processed_image)
