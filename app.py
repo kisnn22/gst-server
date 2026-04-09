@@ -13,8 +13,11 @@ app = Flask(__name__)
 
 # Firebase Authentication
 cred = credentials.Certificate("key.json")
+
+# ✅ FIXED: You left the databaseURL as "your-db" earlier! 
+# We've updated it to match your actual Google Project ID!
 firebase_admin.initialize_app(cred, {
-    "databaseURL": "https://your-db.firebaseio.com/"
+    "databaseURL": "https://gst-server-491905-default-rtdb.firebaseio.com/"
 })
 
 # ✅ FIXED: Forcefully passes your key.json to Google Vision so it never blocks you!
