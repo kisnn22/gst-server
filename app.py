@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
-from google.cloud import vision
-from google.oauth2 import service_account
+import requests
 import firebase_admin
 from firebase_admin import credentials, db
 import traceback
@@ -20,16 +19,50 @@ firebase_admin.initialize_app(cred, {
     "databaseURL": "https://gst-server-491905-default-rtdb.firebaseio.com/"
 })
 
-# ✅ FIXED: Forcefully passes your key.json to Google Vision so it never blocks you!
-vision_creds = service_account.Credentials.from_service_account_file("key.json")
-client = vision.ImageAnnotatorClient(credentials=vision_creds)
+# ==========================================
+# 🛑 GOOGLE VISION COMPLETELY REMOVED! 🛑
+# We are now using OCR.space - 100% Free, NO Credit Cards!
+# ==========================================
 
-# OCR
 def extract_text(image_bytes):
-    image = vision.Image(content=image_bytes)
-    response = client.text_detection(image=image)
-    texts = response.text_annotations
-    return texts[0].description if texts else ""
+    # Free API endpoint for OCR.space
+    api_url = 'https://api.ocr.space/parse/image'
+    
+    # 'helloworld' is a free public testing key, but if it limits you,
+    # you can grab your own infinite free key at: https://ocr.space/OCRAPI
+    api_key = 'helloworld' 
+    
+    # Send our cropped, perfectly flattened image explicitly as a JPEG
+    files = {"file": ("invoice.jpg", image_bytes, "image/jpeg")}
+    
+    # Settings: Engine 1 usually reads text best. isTable=True helps with aligned bills.
+    data = {
+        "apikey": api_key,
+        "language": "eng",
+        "OCREngine": 1,
+        "scale": "true",
+        "isTable": "true"
+    }
+    
+    try:
+        response = requests.post(api_url, files=files, data=data)
+        result = response.json()
+        
+        # Did the API throw a processing error?
+        if result.get("IsErroredOnProcessing"):
+            print("❌ OCR.space API Error:", result.get("ErrorMessage"))
+            return ""
+            
+        # Successfully parsed!
+        parsed_results = result.get("ParsedResults", [])
+        if parsed_results:
+            return parsed_results[0].get("ParsedText", "")
+            
+        return ""
+        
+    except Exception as e:
+        print("🔥 OCR Exception:", str(e))
+        return ""
 
 # GST Extraction
 def find_gst(text):
