@@ -8,6 +8,11 @@ import cv2
 import numpy as np
 
 
+import os
+
+latest_image = None
+processed_latest_image = None
+
 app = Flask(__name__)
 
 # Firebase Authentication
@@ -171,16 +176,32 @@ def home():
     return "GST AI SERVER RUNNING"
 
 
+@app.route('/latest')
+def get_latest():
+    if latest_image:
+        return app.response_class(latest_image, mimetype='image/jpeg')
+    return "No ESP32 connection yet! Try scanning something first."
+
+@app.route('/latest_processed')
+def get_latest_processed():
+    if processed_latest_image:
+        return app.response_class(processed_latest_image, mimetype='image/jpeg')
+    return "No cropped image yet!"
+
+
 @app.route('/upload', methods=['POST'])
 def upload():
+    global latest_image, processed_latest_image
     try:
         image = request.get_data()
+        latest_image = image # Save what the ESP32 sent us exactly
 
         if not image:
             return jsonify({"status": "ERROR", "msg": "No image data sent"})
 
         # --- STEP 1: Process and flatten the image first! ---
-        has_shape, processed_image = crop_invoice(image)
+        is_blurry, has_shape, processed_image = crop_invoice(image)
+        processed_latest_image = processed_image # Save the OpenCV result
 
         if has_shape == "BLUR":
             print("❌ Image was too blurry. Aborting Vision API!")
