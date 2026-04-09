@@ -6,8 +6,6 @@ import traceback
 import re
 import cv2
 import numpy as np
-
-
 import os
 
 latest_image = None
@@ -200,7 +198,7 @@ def upload():
             return jsonify({"status": "ERROR", "msg": "No image data sent"})
 
         # --- STEP 1: Process and flatten the image first! ---
-        is_blurry, has_shape, processed_image = crop_invoice(image)
+        has_shape, processed_image = crop_invoice(image)
         processed_latest_image = processed_image # Save the OpenCV result
 
         if has_shape == "BLUR":
