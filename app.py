@@ -49,19 +49,20 @@ def extract_text(image_bytes):
         
         # Did the API throw a processing error?
         if result.get("IsErroredOnProcessing"):
-            print("❌ OCR.space API Error:", result.get("ErrorMessage"))
-            return ""
+            error_msg = result.get("ErrorMessage")
+            print("❌ OCR.space API Error:", error_msg)
+            return f"API ERROR: {error_msg}"
             
         # Successfully parsed!
         parsed_results = result.get("ParsedResults", [])
         if parsed_results:
             return parsed_results[0].get("ParsedText", "")
             
-        return ""
+        return "BLANK RESULT"
         
     except Exception as e:
         print("🔥 OCR Exception:", str(e))
-        return ""
+        return f"EXCEPTION: {str(e)}"
 
 # GST Extraction
 def find_gst(text):
@@ -196,8 +197,10 @@ def upload():
 
         # --- STEP 3: Validate the text ---
         if not is_invoice(text):
-            print("❌ REJECTED: Not enough invoice keywords found in text.")
-            return jsonify({"status": "NOT_INVOICE"})
+            safe_text = (text[:150] + '...') if len(text) > 150 else text
+            # Sanitize for simpler JSON parsing
+            safe_text = safe_text.replace("\n", " ").replace("\r", "").replace("\"", "'")
+            return jsonify({"status": "NOT_INVOICE", "text": safe_text})
 
         gst = find_gst(text)
 
