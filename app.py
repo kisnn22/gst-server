@@ -173,7 +173,44 @@ def is_invoice(text):
 
 @app.route('/')
 def home():
-    return "GST AI SERVER RUNNING"
+    return "GST AI SERVER RUNNING. Live viewer available at: <a href='/dashboard'>/dashboard</a>"
+
+@app.route('/dashboard')
+def dashboard():
+    return """
+    <html>
+      <head>
+        <title>ESP32-CAM Live View</title>
+        <meta http-equiv="refresh" content="10"> <!-- Auto refresh every 10 seconds -->
+        <style>
+          body { font-family: 'Inter', sans-serif; text-align: center; background: #0f172a; color: #f8fafc; margin: 0; padding: 40px;}
+          h1 { margin-bottom: 5px; font-size: 32px;}
+          p { color: #94a3b8; font-size: 14px; margin-bottom: 30px;}
+          .image-wrapper { display: flex; justify-content: center; gap: 30px; flex-wrap: wrap; margin-top: 20px;}
+          .image-card { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); }
+          .image-card img { max-width: 480px; width: 100%; height: auto; border-radius: 8px; border: 1px solid #475569; }
+          .image-card h2 { margin-top: 0; font-size: 18px; color: #38bdf8; font-weight: 600;}
+          .btn { padding: 12px 24px; font-size: 16px; font-weight: bold; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; transition: 0.3s; }
+          .btn:hover { background: #2563eb; }
+        </style>
+      </head>
+      <body>
+        <h1>Invoice Scanner Live Feed</h1>
+        <p>Auto-refreshes every 10 seconds</p>
+        <button class="btn" onclick="location.reload()">Manual Refresh</button>
+        <div class="image-wrapper">
+          <div class="image-card">
+            <h2>Raw Image from Camera</h2>
+            <img src="/latest?t=" onload="this.src='/latest?t='+new Date().getTime()" alt="Raw Capture" onerror="this.onerror=null; this.src=''; ">
+          </div>
+          <div class="image-card">
+            <h2>Auto-Cropped for OCR</h2>
+            <img src="/latest_processed?t=" onload="this.src='/latest_processed?t='+new Date().getTime()" alt="Processed Cropped Capture" onerror="this.onerror=null; this.src=''; ">
+          </div>
+        </div>
+      </body>
+    </html>
+    """
 
 
 @app.route('/latest')
