@@ -6,6 +6,8 @@ import traceback
 import re
 import cv2
 import numpy as np
+
+
 import os
 
 latest_image = None
@@ -89,8 +91,8 @@ def crop_invoice(image_bytes):
         print(f"📷 Image Sharpness Variance: {variance:.2f}") # Helps debugging on Render
         
         # ESP32-CAM OV2640 lenses are naturally a bit soft. 
-        # A threshold of 40 is much more forgiving than 85.
-        if variance < 40:
+        # A threshold of 10 is much more forgiving than 40, especially for phone screens.
+        if variance < 10.0:
             return "BLUR", image_bytes
 
         # Apply slight blur just for edge detection algorithms
