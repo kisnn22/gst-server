@@ -71,8 +71,20 @@ def extract_text(image_bytes):
 
 # GST Extraction
 def find_gst(text):
+    # Try strict exact match first
     match = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]", text)
-    return match[0] if match else None
+    if match: return match[0]
+    
+    # Fallback: In slightly blurry images, OCR might misread letters (e.g., 'B' as 'ß').
+    # If the exact regex fails, we just look for the literal word "GSTIN" and grab the 15 character string after it.
+    fallback = re.search(r"GSTIN[\s:.-]*([A-Za-z0-9\u00df]{12,18})", text, re.IGNORECASE)
+    if fallback:
+        extracted = fallback.group(1).upper()
+        # Replace common OCR misreads that break the format
+        extracted = extracted.replace("ß", "B").replace(" ", "")
+        return extracted
+        
+    return None
 
 # 🔥 BULLETPROOF AUTO-ZOOM & BLUR DETECTION
 def crop_invoice(image_bytes):
@@ -155,19 +167,27 @@ def crop_invoice(image_bytes):
     return False, image_bytes
 
 # 🔥 FINAL LOGIC
+# 🔥 FINAL LOGIC
 def is_invoice(text):
-    if len(text) < 50:
+    if len(text) < 20:  # Lowered from 50 to catch partial reads
         return False
 
     score = 0
-    if "invoice" in text.lower(): score += 3
-    if "bill" in text.lower(): score += 3
-    if "gst" in text.lower(): score += 3
-    if "total" in text.lower(): score += 1
+    t = text.lower()
+    if "invoice" in t: score += 3
+    if "bill" in t: score += 3
+    if "gst" in t: score += 3
+    if "total" in t: score += 1
+    if "order" in t: score += 2
+    if "pan" in t: score += 2
+    if "supply" in t: score += 2
+    if "date" in t: score += 1
+    if "amount" in t: score += 1
     
     if find_gst(text): 
         score += 5
 
+    # 6 points is passing. E.g., 'gst'(3) + 'pan'(2) + 'date'(1) = 6.
     return score >= 6
 
 
