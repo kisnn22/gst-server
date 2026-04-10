@@ -75,13 +75,22 @@ def find_gst(text):
     match = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]", text)
     if match: return match[0]
     
-    # Fallback: In slightly blurry images, OCR might misread letters (e.g., 'B' as 'ß').
-    # If the exact regex fails, we just look for the literal word "GSTIN" and grab the 15 character string after it.
-    fallback = re.search(r"GSTIN[\s:.-]*([A-Za-z0-9\u00df]{12,18})", text, re.IGNORECASE)
+    # Blurry digital text often confuses OCR kerning, causing it to insert random
+    # spaces inside continuous strings (e.g., "27AA B CF 8078").
+    # We remove ALL whitespace characters to form one giant continuous string block.
+    clean_text = re.sub(r'\s+', '', text)
+    
+    # Try strict match on the spaceless text
+    match_clean = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]", clean_text)
+    if match_clean: return match_clean[0]
+    
+    # Fallback: Look for the literal word "GSTIN" and grab the next 15 characters.
+    # Because we removed spaces, "GSTIN" will directly connect to the number like "GSTIN:27AABCF..."
+    fallback = re.search(r"GSTIN:*([A-Za-z0-9\u00df]{14,16})", clean_text, re.IGNORECASE)
     if fallback:
         extracted = fallback.group(1).upper()
-        # Replace common OCR misreads that break the format
-        extracted = extracted.replace("ß", "B").replace(" ", "")
+        # Replace common OCR misreads
+        extracted = extracted.replace("ß", "B")
         return extracted
         
     return None
