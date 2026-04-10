@@ -169,26 +169,29 @@ def crop_invoice(image_bytes):
 # 🔥 FINAL LOGIC
 # 🔥 FINAL LOGIC
 def is_invoice(text):
-    if len(text) < 20:  # Lowered from 50 to catch partial reads
+    if len(text) < 15:  # Extremely forgiving
         return False
 
     score = 0
     t = text.lower()
-    if "invoice" in t: score += 3
-    if "bill" in t: score += 3
-    if "gst" in t: score += 3
-    if "total" in t: score += 1
-    if "order" in t: score += 2
-    if "pan" in t: score += 2
-    if "supply" in t: score += 2
-    if "date" in t: score += 1
-    if "amount" in t: score += 1
     
+    # Dictionary of common invoice/corporate words and their point values
+    keywords = {
+        "invoice": 3, "bill": 3, "gst": 3, "tax": 2, "retail": 2, 
+        "order": 2, "pan": 2, "supply": 2, "total": 1, "date": 1,
+        "amount": 1, "number": 1, "private": 1, "limited": 1, 
+        "warehouse": 1, "details": 1
+    }
+    
+    for word, points in keywords.items():
+        if word in t:
+            score += points
+            
     if find_gst(text): 
         score += 5
 
-    # 6 points is passing. E.g., 'gst'(3) + 'pan'(2) + 'date'(1) = 6.
-    return score >= 6
+    # 4 points is passing. Example: "private"(1) + "limited"(1) + "warehouse"(1) + "number"(1) = 4 checks out!
+    return score >= 4
 
 
 @app.route('/')
