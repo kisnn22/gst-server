@@ -84,9 +84,10 @@ def find_gst(text):
     match_clean = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]", clean_text)
     if match_clean: return match_clean[0]
     
-    # Fallback: Look for the literal word "GSTIN" and grab the next 15 characters.
-    # Because we removed spaces, "GSTIN" will directly connect to the number like "GSTIN:27AABCF..."
-    fallback = re.search(r"GSTIN:*([A-Za-z0-9\u00df]{14,16})", clean_text, re.IGNORECASE)
+    # Fallback: Look for the literal word "GSTIN". 
+    # We use [^A-Za-z0-9]* to capture and ignore any random punctuation (like colons, semicolons, dashes) 
+    # that the OCR might have incorrectly interpreted between "GSTIN" and the number.
+    fallback = re.search(r"GSTIN[^A-Za-z0-9]*([A-Za-z0-9\u00df]{12,18})", clean_text, re.IGNORECASE)
     if fallback:
         extracted = fallback.group(1).upper()
         # Replace common OCR misreads
