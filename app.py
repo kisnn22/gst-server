@@ -10,6 +10,7 @@ import numpy as np
 
 
 import os
+import time
 
 latest_image = None
 processed_latest_image = None
@@ -22,6 +23,52 @@ SECURE_API_KEY = "sk_live_smartgst2026"
 
 # Firebase REST URL
 FIREBASE_DB_URL = "https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com"
+
+# --- AUDIT & FRAUD ENGINE (PHASE 3) ---
+def log_audit(action, role, details=""):
+    try:
+        timestamp = int(time.time())
+        requests.post(f"{FIREBASE_DB_URL}/AUDIT_LOGS.json", json={
+            "action": action,
+            "role": role,
+            "details": details,
+            "timestamp": timestamp,
+            "time_readable": time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(timestamp))
+        })
+    except Exception as e:
+        print("Audit log failed:", e)
+
+def analyze_fraud_risk(gst):
+    try:
+        current_time = int(time.time())
+        # Log this scan instance to GST_SCANS
+        requests.post(f"{FIREBASE_DB_URL}/GST_SCANS.json", json={
+            "gst": gst,
+            "timestamp": current_time
+        })
+        
+        # Check all scans for this GST in the last 1 hour (3600 seconds)
+        resp = requests.get(f"{FIREBASE_DB_URL}/GST_SCANS.json")
+        if resp.status_code == 200 and resp.json():
+            scans = resp.json()
+            count = 0
+            for key, val in scans.items():
+                if val.get("gst") == gst:
+                    if current_time - val.get("timestamp", 0) <= 3600:
+                        count += 1
+            if count >= 5:
+                # Log HIGH RISK
+                requests.put(f"{FIREBASE_DB_URL}/HIGH_RISK/{gst}.json", json={
+                    "flagged": True,
+                    "reason": "Scanned 5+ times in 1 hour",
+                    "timestamp": current_time,
+                    "gst": gst
+                })
+                log_audit("FRAUD_DETECTED", "system", f"High risk: GST {gst} scanned {count} times in 1 hour")
+                return True
+    except Exception as e:
+        print("Fraud check failed:", e)
+    return False
 
 # ==========================================
 # 🛑 GOOGLE VISION COMPLETELY REMOVED! 🛑
@@ -231,9 +278,13 @@ def upload():
     
     # --- PHASE 1: DEVICE API KEY AUTHENTICATION ---
     provided_key = request.headers.get("X-API-KEY")
+    role = "admin" if provided_key == "sk_admin_key" else "standard_user"
     if provided_key != SECURE_API_KEY:
         print(f"🔒 Blocked Unauthorized Access. Key used: {provided_key}")
+        log_audit("UNAUTHORIZED_ACCESS", "unknown_user", f"Attempted access with key {provided_key}")
         return jsonify({"status": "UNAUTHORIZED", "msg": "Invalid or missing X-API-KEY header."}), 401
+
+    log_audit("IMAGE_UPLOAD_STARTED", role, "Started processing a new invoice image")
 
     try:
         image = request.get_data()
@@ -270,12 +321,16 @@ def upload():
         gst = find_gst(text)
 
         if not gst:
+            log_audit("GST_MISSING", role, "Failed to extract GST string")
             return jsonify({"status": "GST_MISSING"})
 
         # --- PHASE 1: EXTRACT STRUCTURED DATA ---
         extra_data = extract_invoice_data(text)
 
         try:
+            # Analyze Fraud Risk (PHASE 3)
+            is_fraud = analyze_fraud_risk(gst)
+
             # --- STEP 4: Save to Firebase via REST API ---
             # Bypassing JWT Authentication completely because the database is open
             db_response = requests.get(f"{FIREBASE_DB_URL}/GST_HISTORY.json")
@@ -283,6 +338,15 @@ def upload():
             data = {}
             if db_response.status_code == 200 and db_response.json():
                 data = db_response.json()
+
+            if is_fraud:
+                return jsonify({
+                    "status": "HIGH_RISK_FRAUD", 
+                    "gst": gst,
+                    "date": extra_data["date"],
+                    "total_amount": extra_data["total_amount"],
+                    "invoice_number": extra_data["invoice_number"]
+                })
 
             if gst in data:
                 return jsonify({
@@ -303,7 +367,10 @@ def upload():
         except Exception as fb_error:
             # If Google Vision worked, but Firebase failed, catch it here!
             print("FIREBASE CRASH LOG:", str(fb_error))
+            log_audit("FIREBASE_ERROR", role, f"Error saving GST {gst}: {str(fb_error)}")
             return jsonify({"status": "FIREBASE_CRASH", "gst": gst, "error": str(fb_error)})
+
+        log_audit("INVOICE_PROCESSED_SUCCESSFULLY", role, f"Processed invoice with GST {gst}")
 
         return jsonify({
             "status": "VALID_INVOICE", 
@@ -315,6 +382,7 @@ def upload():
         
     except Exception as e:
         print("VISION CRASH LOG:", traceback.format_exc())
+        log_audit("PYTHON_CRASH", "system", str(e))
         return jsonify({"status": "PYTHON_CRASH", "error": str(e)})
 
 
