@@ -99,23 +99,23 @@ def find_gst(text):
 def extract_invoice_data(text):
     data = {"date": "N/A", "total_amount": "N/A", "invoice_number": "N/A"}
     
-    # 1. Date Extraction (DD/MM/YYYY or DD-MM-YYYY)
-    date_match = re.search(r'\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})\b', text)
+    # 1. Date Extraction (Matches DD/MM/YYYY, DD-MM-YYYY, or Spelled Out Dates)
+    date_match = re.search(r'\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s\.\,]*\d{1,2}[\s\.\,]*\d{4}|\d{1,2}[\s\.\,]*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s\.\,]*\d{4})\b', text, re.IGNORECASE)
     if date_match:
         data["date"] = date_match.group(1)
         
-    # 2. Total Amount Extraction
-    amt_match = re.search(r'Total[^\d]*?(\d+[\.\,]\d{2})', text, re.IGNORECASE)
+    # 2. Total Amount Extraction (Matches Total Amount: INR Rs comma-separated formats)
+    amt_match = re.search(r'(?:Total|Amount|INR)[\sA-Za-z\(\):]*?(\d{1,3}(?:[\,\.]\d{2,3})*[\.\,]\d{2})', text, re.IGNORECASE)
     if amt_match:
         data["total_amount"] = amt_match.group(1)
         
-    # 3. Invoice Number Extraction
-    inv_match = re.search(r'(?:Invoice No|Bill No|Inv No|Bill)[\s\.:]*?([A-Za-z0-9\-]+)', text, re.IGNORECASE)
+    # 3. Invoice Number Extraction (Allows slashes, hyphens)
+    inv_match = re.search(r'(?:Invoice No|Invoice Number|Inv\.? No|Bill No|Bill)[\s\.:]*?([A-Za-z0-9\-\/]+)', text, re.IGNORECASE)
     if inv_match:
         # Ignore things like "Bill Dt" by filtering short matches
         if len(inv_match.group(1)) > 3 and inv_match.group(1).upper() != 'DATE':
             data["invoice_number"] = inv_match.group(1)
-        
+            
     return data
 
 # 🔥 VERIFY BULLETPROOF SHARPNESS 
