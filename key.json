@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "6823279296",
+    "firebase_url": "https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com",
+    "project_id": "smart-gst-compliance-ae82d",
+    "storage_bucket": "smart-gst-compliance-ae82d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:6823279296:android:61f31e18c442c1a7970b25",
+        "android_client_info": {
+          "package_name": "com.kishan.smartgstcompliance"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCV6v3Zle-xO-rSMuKKmwB44qtkkJu8UnE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
