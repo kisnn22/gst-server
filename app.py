@@ -67,7 +67,8 @@ def extract_text(image_bytes):
 # GST Extraction
 def find_gst(text):
     # Try strict exact match first
-    match = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]", text)
+    # Try strict exact match first
+    match = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d][Z][A-Z\d]", text)
     if match: return match[0]
     
     # Blurry digital text often confuses OCR kerning, causing it to insert random
@@ -76,7 +77,7 @@ def find_gst(text):
     clean_text = re.sub(r'\s+', '', text)
     
     # Try strict match on the spaceless text
-    match_clean = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z]\d[Z][A-Z\d]", clean_text)
+    match_clean = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d][Z][A-Z\d]", clean_text)
     if match_clean: return match_clean[0]
     
     # Fallback: Look for the literal word "GSTIN". 
