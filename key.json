@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "smart-gst-compliance-ae82d",
+  "private_key_id": "bca8371badb986a108776ae63aa9499bab95cc84",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDaRqXXtQxshaej\nYguMtkD9HiiHBSP13qMCGMv7ABZxeZhx+zvHPjb0HyPEWvuapkh20inX9IUH60s5\nU62e263/IUrGLPGW8IyOLwCyps7EGY23Hv//giv6SMAliYbl4ifTzI38NCWG2Yhc\nizmLtbuxfzva3X7podDdl9NCKkLIfnZ2YyszbuuEzu0JyS702D5dfMBUYH7Fst78\nhEY5nZyc+YES4R1b3J5PDgw+j9nyTmzfMdfVO3E28KyrxNU60aNTKGvJzBGzoBYI\nI3pzw5qos4Rpia1Fe/quV3r0/pe/JMolSUEHDf2MaO/TwbE/5eJ+hA2vJ83mzJdj\npu7LH9jHAgMBAAECggEASZiCeG2aB8k00bjQLhyRYwbVIVlRW6g6jA1yUWohJxeZ\nl+zepfpLKxqIw77tkKI6Up3f7+mJJTdngKe/JY3qZ9iAzrr+pibrLVGZyaLGmoYH\nK1QveqYYT+ZRqxZovn/3b8lLolquwH3+JT3oJDwdUeaVduEx1nJx6xUy7N8070Zd\nD+b4/9dxjmQfTt05wW2LAaSIw0hBjcp2GH2rirHAC8mr+2PKAqBJx+3goObdCMtQ\nrCyddldPKeOgccBDd/YaV1JrTSGKThbQ0c++Yy+W8jJZym2RrNdnSxBOGaxnzLNR\nL4mv+TQaixPsc6QyHXxCB8lc8V7gKU3WBTNsKYlYUQKBgQDzSZF6JA7Ub+WVHSz7\nS4lAXMFQkZYRFb/Ikdp5ZfXNfTJEu1shl+hiVc3w6uP9s6g8t9prSvHr5Eza/IFa\nd4Rz4/p6JdA4mQlfPBcxmKBgQXnh6y+PxymJzmLAgSpExTC/9wTOYVWkEy/zfkAC\nsfPknIx0kFt+iZSTy90qoVqH2QKBgQDlroEd/K7jfozB4idwKenQGY2csNVVBY2U\nIQ2YaSYLmstIGakd8uTm+Er0qGCRfSXRWHuh2DZjPJKHrGfJB8x1LDsb8ZJ/fvlL\nVhd5QpguFy3RYbtxJWGDBgelK6inWcwGiHXUeYhviphZfw4z28Jhv0+gUV61AuZk\nV1h+JGahnwKBgAt2m/Q1Xr2DyD2OcmAk3wK5XCJ/uaJ0c+Tvemvd8gcMryGt8k1S\n6xA3Gs0PRE7f+D1kLFaB4YRL7ZMj8rRgjU0ooNTAk18XVum12yHrHyNp8mRCwKr1\np29m2iBX9bXn1LQ233MaAv8IKGpAuKNn3yYWekfDxYvgz69nG7S2hZ2BAoGBAKkJ\nsltIgcpKc/upnw7sufj/JXsBpjBJwvYXEXNvR6HYze2FfTLeddsLN9cyKMhKy890\nCKGHiBenF8ykdUm95JsD74jUVNZis8TfWq1S9r9NLdpgzFwsf8S3Zl8Ib7qi2waf\n3eB/hYtZ/GA5o1FFVp0r+MVrvYEI3llQ8376+VHPAoGBAJA7gHObQMhAjoHlu56T\neExlXVeRAaKIZ0xjjLbq7A6+Y547qXcViXeotP+baUwnzOblIVP6LPcWw1bhBLVL\nS5DfD7YV9Vgldiluvj3K6k9UoxUSo4Pey/ZPdd3Zy5vU4Ws6e9lF3gH+hDQNAxPi\nCc6RvDy0ANAAzJLJAZVw4cSb\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-fbsvc@smart-gst-compliance-ae82d.iam.gserviceaccount.com",
+  "client_id": "107862825331509694191",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40smart-gst-compliance-ae82d.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
