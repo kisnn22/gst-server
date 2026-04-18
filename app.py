@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify
 import requests
-import firebase_admin
-from firebase_admin import credentials, db
+# REST API mode enabled - Bypassing firebase_admin entirely!
+# import firebase_admin
+# from firebase_admin import credentials, db
 import traceback
 import re
 import cv2
@@ -15,14 +16,8 @@ processed_latest_image = None
 
 app = Flask(__name__)
 
-# Firebase Authentication
-cred = credentials.Certificate("key.json")
-
-# ✅ FIXED: You left the databaseURL as "your-db" earlier! 
-# We've updated it to match your actual Google Project ID!
-firebase_admin.initialize_app(cred, {
-    "databaseURL": "https://gst-server-491905-default-rtdb.firebaseio.com/"
-})
+# Firebase REST URL
+FIREBASE_DB_URL = "https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com"
 
 # ==========================================
 # 🛑 GOOGLE VISION COMPLETELY REMOVED! 🛑
@@ -244,14 +239,18 @@ def upload():
             return jsonify({"status": "GST_MISSING"})
 
         try:
-            # --- STEP 4: Save to Firebase ---
-            ref = db.reference("GST_HISTORY")
-            data = ref.get() or {}
+            # --- STEP 4: Save to Firebase via REST API ---
+            # Bypassing JWT Authentication completely because the database is open
+            db_response = requests.get(f"{FIREBASE_DB_URL}/GST_HISTORY.json")
+            
+            data = {}
+            if db_response.status_code == 200 and db_response.json():
+                data = db_response.json()
 
             if gst in data:
                 return jsonify({"status": "DUPLICATE_GST"})
 
-            ref.child(gst).set({"ok": True})
+            requests.put(f"{FIREBASE_DB_URL}/GST_HISTORY/{gst}.json", json={"ok": True})
             
         except Exception as fb_error:
             # If Google Vision worked, but Firebase failed, catch it here!
