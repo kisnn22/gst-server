@@ -16,6 +16,10 @@ processed_latest_image = None
 
 app = Flask(__name__)
 
+# --- SECURE API KEY (PHASE 1) ---
+SECURE_API_KEY = "sk_live_smartgst2026"
+
+
 # Firebase REST URL
 FIREBASE_DB_URL = "https://smart-gst-compliance-ae82d-default-rtdb.firebaseio.com"
 
@@ -67,30 +71,52 @@ def extract_text(image_bytes):
 # GST Extraction
 def find_gst(text):
     # Try strict exact match first
-    # Try strict exact match first
-    match = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d][Z][A-Z\d]", text)
-    if match: return match[0]
+    clean_text = re.sub(r'\s+', '', text.upper())
     
-    # Blurry digital text often confuses OCR kerning, causing it to insert random
-    # spaces inside continuous strings (e.g., "27AA B CF 8078").
-    # We remove ALL whitespace characters to form one giant continuous string block.
-    clean_text = re.sub(r'\s+', '', text)
-    
-    # Try strict match on the spaceless text
-    match_clean = re.findall(r"\d{2}[A-Z]{5}\d{4}[A-Z][A-Z\d][Z][A-Z\d]", clean_text)
+    # 1. Advanced strict match (allows common OCR digit mangles like 0->O, 1->I, 5->S, 8->B, Z->2)
+    regex_advanced = r"[0-9OISZB]{2}[A-Z]{5}[0-9OISZB]{4}[A-Z][A-Z0-9][Z2][A-Z0-9]"
+    match_clean = re.findall(regex_advanced, clean_text)
     if match_clean: return match_clean[0]
     
-    # Fallback: Look for the literal word "GSTIN". 
-    # We use [^A-Za-z0-9]* to capture and ignore any random punctuation (like colons, semicolons, dashes) 
-    # that the OCR might have incorrectly interpreted between "GSTIN" and the number.
-    fallback = re.search(r"GSTIN[^A-Za-z0-9]*([A-Za-z0-9\u00df]{12,18})", clean_text, re.IGNORECASE)
-    if fallback:
-        extracted = fallback.group(1).upper()
-        # Replace common OCR misreads
-        extracted = extracted.replace("ß", "B")
-        return extracted
+    # 2. Aggressive punctuation stripper fallback
+    # If a stamp puts random symbols like '@' or '.' over the GST, strip them!
+    idx = clean_text.find("GST")
+    if idx != -1:
+        chunk = clean_text[idx:idx+100]
+        # remove labels commonly found next to GST
+        chunk = re.sub(r'(GSTIN|GST|NO|NUMBER|:|-)', '', chunk)
+        # remove punctuation entirely!
+        pure = re.sub(r'[^A-Z0-9]', '', chunk)
         
+        # Look for 15 chars loosely
+        m = re.search(r"([0-9OISZB]{2}[A-Z0-9]{13})", pure)
+        if m:
+            return m.group(1)
+
     return None
+
+# --- INTELLIGENT DATA EXTRACTION (PHASE 1) ---
+def extract_invoice_data(text):
+    data = {"date": "N/A", "total_amount": "N/A", "invoice_number": "N/A"}
+    
+    # 1. Date Extraction (DD/MM/YYYY or DD-MM-YYYY)
+    date_match = re.search(r'\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})\b', text)
+    if date_match:
+        data["date"] = date_match.group(1)
+        
+    # 2. Total Amount Extraction
+    amt_match = re.search(r'Total[^\d]*?(\d+[\.\,]\d{2})', text, re.IGNORECASE)
+    if amt_match:
+        data["total_amount"] = amt_match.group(1)
+        
+    # 3. Invoice Number Extraction
+    inv_match = re.search(r'(?:Invoice No|Bill No|Inv No|Bill)[\s\.:]*?([A-Za-z0-9\-]+)', text, re.IGNORECASE)
+    if inv_match:
+        # Ignore things like "Bill Dt" by filtering short matches
+        if len(inv_match.group(1)) > 3 and inv_match.group(1).upper() != 'DATE':
+            data["invoice_number"] = inv_match.group(1)
+        
+    return data
 
 # 🔥 VERIFY BULLETPROOF SHARPNESS 
 def check_blur(image_bytes):
@@ -202,6 +228,13 @@ def get_latest_processed():
 @app.route('/upload', methods=['POST'])
 def upload():
     global latest_image, processed_latest_image
+    
+    # --- PHASE 1: DEVICE API KEY AUTHENTICATION ---
+    provided_key = request.headers.get("X-API-KEY")
+    if provided_key != SECURE_API_KEY:
+        print(f"🔒 Blocked Unauthorized Access. Key used: {provided_key}")
+        return jsonify({"status": "UNAUTHORIZED", "msg": "Invalid or missing X-API-KEY header."}), 401
+
     try:
         image = request.get_data()
         latest_image = image # Save what the ESP32 sent us exactly
@@ -239,6 +272,9 @@ def upload():
         if not gst:
             return jsonify({"status": "GST_MISSING"})
 
+        # --- PHASE 1: EXTRACT STRUCTURED DATA ---
+        extra_data = extract_invoice_data(text)
+
         try:
             # --- STEP 4: Save to Firebase via REST API ---
             # Bypassing JWT Authentication completely because the database is open
@@ -249,16 +285,33 @@ def upload():
                 data = db_response.json()
 
             if gst in data:
-                return jsonify({"status": "DUPLICATE_GST"})
+                return jsonify({
+                    "status": "DUPLICATE_GST", 
+                    "gst": gst,
+                    "date": extra_data["date"],
+                    "total_amount": extra_data["total_amount"],
+                    "invoice_number": extra_data["invoice_number"]
+                })
 
-            requests.put(f"{FIREBASE_DB_URL}/GST_HISTORY/{gst}.json", json={"ok": True})
+            requests.put(f"{FIREBASE_DB_URL}/GST_HISTORY/{gst}.json", json={
+                "ok": True,
+                "date": extra_data["date"],
+                "total_amount": extra_data["total_amount"],
+                "invoice_number": extra_data["invoice_number"]
+            })
             
         except Exception as fb_error:
             # If Google Vision worked, but Firebase failed, catch it here!
             print("FIREBASE CRASH LOG:", str(fb_error))
             return jsonify({"status": "FIREBASE_CRASH", "gst": gst, "error": str(fb_error)})
 
-        return jsonify({"status": "VALID_INVOICE", "gst": gst})
+        return jsonify({
+            "status": "VALID_INVOICE", 
+            "gst": gst,
+            "date": extra_data["date"],
+            "total_amount": extra_data["total_amount"],
+            "invoice_number": extra_data["invoice_number"]
+        })
         
     except Exception as e:
         print("VISION CRASH LOG:", traceback.format_exc())
