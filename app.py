@@ -306,6 +306,9 @@ def upload():
 
         if blur_status == "BLUR":
             print("❌ Image was too blurry. Aborting Vision API!")
+            try:
+                requests.put(f"{FIREBASE_DB_URL}/GST_System.json", json={"alert": "❌ BLURRY IMAGE", "gst_number": "N/A"})
+            except: pass
             return jsonify({"status": "BLUR"})
 
         # --- STEP 2: Feed the FULL untouched image to OCR ---
@@ -329,6 +332,9 @@ def upload():
 
         if not gst:
             log_audit("GST_MISSING", role, "Failed to extract GST string")
+            try:
+                requests.put(f"{FIREBASE_DB_URL}/GST_System.json", json={"alert": "⚠️ GST MISSING", "gst_number": "N/A"})
+            except: pass
             return jsonify({"status": "GST_MISSING"})
 
         # --- PHASE 1: EXTRACT STRUCTURED DATA ---
@@ -356,6 +362,9 @@ def upload():
                 })
 
             if gst in data:
+                try:
+                    requests.put(f"{FIREBASE_DB_URL}/GST_System.json", json={"alert": "⚠️ DUPLICATE GST", "gst_number": gst})
+                except: pass
                 return jsonify({
                     "status": "DUPLICATE_GST", 
                     "gst": gst,
@@ -378,6 +387,16 @@ def upload():
             return jsonify({"status": "FIREBASE_CRASH", "gst": gst, "error": str(fb_error)})
 
         log_audit("INVOICE_PROCESSED_SUCCESSFULLY", role, f"Processed invoice with GST {gst}")
+
+        # --- 📡 PUBLISH LIVE STATUS TO MOBILE DASHBOARD (PHASE 4) ---
+        try:
+            live_status = {
+                "alert": "✅ VALID INVOICE",
+                "gst_number": gst,
+                "timestamp": int(time.time())
+            }
+            requests.put(f"{FIREBASE_DB_URL}/GST_System.json", json=live_status)
+        except: pass
 
         return jsonify({
             "status": "VALID_INVOICE", 
