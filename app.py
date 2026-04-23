@@ -223,7 +223,7 @@ def check_blur(image_bytes):
 # 🔥 FINAL LOGIC
 def is_invoice(text):
     if len(text) < 15:  # Extremely forgiving
-        return False
+        return False, 0
 
     score = 0
     t = text.lower()
