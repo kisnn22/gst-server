@@ -284,18 +284,25 @@ def upload():
         log_audit("UNAUTHORIZED_ACCESS", "unknown_user", f"Attempted access with key {provided_key}")
         return jsonify({"status": "UNAUTHORIZED", "msg": "Invalid or missing X-API-KEY header."}), 401
 
-    log_audit("IMAGE_UPLOAD_STARTED", role, "Started processing a new invoice image")
-
+    source = request.headers.get("X-SOURCE", "APP") # Default to APP if not provided
+    
+    log_audit("IMAGE_UPLOAD_STARTED", f"{role} ({source})", f"Started processing a new invoice image from {source}")
+    
     try:
         image = request.get_data()
-        latest_image = image # Save what the ESP32 sent us exactly
+        
+        # Only update the dashboard feed if the image came from the ESP32 IoT device
+        if source == "ESP32":
+            latest_image = image # Save what the ESP32 sent us exactly
 
         if not image:
             return jsonify({"status": "ERROR", "msg": "No image data sent"})
 
         # --- STEP 1: Check for explicit blurriness ---
         blur_status = check_blur(image)
-        processed_latest_image = image # Just mirror raw to dashboard if we completely skip cropping
+        
+        if source == "ESP32":
+            processed_latest_image = image # Just mirror raw to dashboard if we completely skip cropping
 
         if blur_status == "BLUR":
             print("❌ Image was too blurry. Aborting Vision API!")
