@@ -38,6 +38,36 @@ def log_audit(action, role, details=""):
     except Exception as e:
         print("Audit log failed:", e)
 
+import hashlib
+
+# --- SECURITY ENGINE (PHASE 4) ---
+# Rate limiting tracker
+request_history = {}
+
+def is_rate_limited(ip):
+    now = time.time()
+    if ip not in request_history:
+        request_history[ip] = []
+    # Keep only requests from last 60 seconds
+    request_history[ip] = [t for t in request_history[ip] if now - t < 60]
+    if len(request_history[ip]) > 20: # Limit to 20 requests per minute
+        return True
+    request_history[ip].append(now)
+    return False
+
+def get_image_hash(image_bytes):
+    return hashlib.md5(image_bytes).hexdigest()
+
+def is_duplicate_image(image_hash):
+    try:
+        resp = requests.get(f"{FIREBASE_DB_URL}/IMAGE_HASHES/{image_hash}.json")
+        if resp.status_code == 200 and resp.json():
+            return True
+        # Save hash if new
+        requests.put(f"{FIREBASE_DB_URL}/IMAGE_HASHES/{image_hash}.json", json={"timestamp": int(time.time())})
+    except: pass
+    return False
+
 def analyze_fraud_risk(gst):
     try:
         current_time = int(time.time())
@@ -213,8 +243,9 @@ def is_invoice(text):
     if find_gst(text): 
         score += 5
 
-    # 4 points is passing. Example: "private"(1) + "limited"(1) + "warehouse"(1) + "number"(1) = 4 checks out!
-    return score >= 4
+    # Max typical score around 20-30
+    confidence = min(100, int((score / 15) * 100))
+    return score >= 4, confidence
 
 
 @app.route('/')
@@ -289,8 +320,21 @@ def upload():
     log_audit("IMAGE_UPLOAD_STARTED", f"{role} ({source})", f"Started processing a new invoice image from {source}")
     
     try:
+        # --- PHASE 4: RATE LIMITING ---
+        if is_rate_limited(request.remote_addr):
+            return jsonify({"status": "ERROR", "msg": "Rate limit exceeded. Try again later."}), 429
+
         image = request.get_data()
         
+        if not image:
+            return jsonify({"status": "ERROR", "msg": "No image data sent"})
+
+        # --- PHASE 4: DUPLICATE IMAGE DETECTION (HASH-BASED) ---
+        img_hash = get_image_hash(image)
+        if is_duplicate_image(img_hash):
+            print(f"🛑 Blocked Duplicate Image Upload. Hash: {img_hash}")
+            return jsonify({"status": "DUPLICATE_IMAGE", "msg": "This exact image has already been processed."})
+
         # Only update the dashboard feed if the image came from the ESP32 IoT device
         if source == "ESP32":
             latest_image = image # Save what the ESP32 sent us exactly
@@ -322,11 +366,12 @@ def upload():
         print("====================================")
 
         # --- STEP 3: Validate the text ---
-        if not is_invoice(text):
+        is_inv, confidence = is_invoice(text)
+        if not is_inv:
             safe_text = (text[:150] + '...') if len(text) > 150 else text
             # Sanitize for simpler JSON parsing
             safe_text = safe_text.replace("\n", " ").replace("\r", "").replace("\"", "'")
-            return jsonify({"status": "NOT_INVOICE", "text": safe_text})
+            return jsonify({"status": "NOT_INVOICE", "text": safe_text, "confidence": confidence})
 
         gst = find_gst(text)
 
